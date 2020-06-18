@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 
+	"github.com/alexflint/doc-publisher/lesswrong"
 	"github.com/alexflint/go-arg"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -68,10 +70,31 @@ func main() {
 	ctx := context.Background()
 
 	var args struct {
+		Password string `arg:"-p,--password"`
 		Document string
 	}
 	args.Document = "1_4OtBmq2gG8zFnqTlAvpHc1sshfkv4hw3z62vHs4crI"
 	arg.MustParse(&args)
+
+	// authenticate to lesswrong
+	auth, err := lesswrong.Authenticate(ctx, "alex.flint@gmail.com", args.Password)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println("got auth token:", auth.Token)
+
+	lw, err := lesswrong.New()
+	lw.Auth = auth
+
+	err = lw.CreatePost(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("done")
+
+	os.Exit(0)
 
 	// read the oauth configuration file
 	b, err := ioutil.ReadFile("oauth_credentials.json")
