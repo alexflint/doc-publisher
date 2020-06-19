@@ -1,14 +1,18 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 
+	"github.com/alexflint/doc-publisher/imgur"
 	"github.com/alexflint/doc-publisher/lesswrong"
 	"github.com/alexflint/go-arg"
 	"github.com/kr/pretty"
@@ -70,15 +74,40 @@ func saveToken(path string, token *oauth2.Token) error {
 	return json.NewEncoder(f).Encode(token)
 }
 
+const imgurAPIKey = "ac9d94aa284ff2a"
+
 func main() {
 	ctx := context.Background()
 
+	// parse command line args
 	var args struct {
 		Password string `arg:"-p,--password"`
 		Document string
+		Upload   string
+		SaveZip  string
 	}
-	args.Document = "1_4OtBmq2gG8zFnqTlAvpHc1sshfkv4hw3z62vHs4crI"
+	//args.Document = "1_4OtBmq2gG8zFnqTlAvpHc1sshfkv4hw3z62vHs4crI" // scratch document
+	args.Document = "1px3ivo6aFqAi0TA4u9oJkxwsry1D5GYv76GZ4nV00Rk" // ground of optimization
 	arg.MustParse(&args)
+
+	imgur := imgur.New(imgurAPIKey)
+
+	// upload an image to imgur
+	if args.Upload != "" {
+		buf, err := ioutil.ReadFile(args.Upload)
+		if err != nil {
+			fail(err)
+		}
+
+		imageURL, err := imgur.Upload(ctx, buf)
+		if err != nil {
+			fail(err)
+		}
+
+		fmt.Println(imageURL)
+
+		return
+	}
 
 	if args.Password != "" {
 		// authenticate to lesswrong
@@ -129,28 +158,71 @@ func main() {
 	}
 	client := config.Client(context.Background(), tok)
 
+	// create the drive client
 	driveClient, err := drive.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
 		fail("error creating drive client: %v", err)
 	}
 
-	f, err := os.Create("doc.zip")
-	if err != nil {
-		fail("error creating doc.zip: %v", err)
-	}
-	defer f.Close()
-
+	// export the document as a zip arcive
 	resp, err := driveClient.Files.Export(args.Document, "application/zip").Download()
 	if err != nil {
 		fail("error in file download api call: %v", err)
 	}
 
-	nbytes, err := io.Copy(f, resp.Body)
+	zipbuf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		fail("error writing exported doc to disk: %v", err)
+		fail("error reading exported doc from request: %v", err)
 	}
 
-	fmt.Printf("wrote %d bytes to doc.zip\n", nbytes)
+	// save to disk if requested
+	if args.SaveZip != "" {
+		err := ioutil.WriteFile(args.SaveZip, zipbuf, os.ModePerm)
+		if err != nil {
+			fail("error writing to %s: %w", args.SaveZip, err)
+		}
+		fmt.Printf("wrote %d bytes to %s\n", len(zipbuf), args.SaveZip)
+	}
+
+	// upload each image to imgur
+	ziprd, err := zip.NewReader(bytes.NewReader(zipbuf), int64(len(zipbuf)))
+	if err != nil {
+		fail("error decoding zip archive: %v", err)
+	}
+
+	imgURLs := make(map[int]string)
+	for _, f := range ziprd.File {
+		if strings.HasPrefix(f.Name, "images/image") {
+			fmt.Println(f.Name)
+
+			s := strings.TrimPrefix(f.Name, "images/image")
+			s = strings.TrimSuffix(s, ".png")
+			n, err := strconv.Atoi(s)
+			if err != nil {
+				fail("error interpreting image filename %q: expected 'images/imageN.png'", f.Name)
+			}
+
+			r, err := f.Open()
+			if err != nil {
+				fail("error opening %s from zip archive: %v", f.Name, err)
+			}
+
+			buf, err := ioutil.ReadAll(r)
+			if err != nil {
+				fail("error reading %s from zip archive: %v", f.Name, err)
+			}
+
+			imgURL, err := imgur.Upload(ctx, buf)
+			if err != nil {
+				fail("error uploading %s to imgur: %v", f.Name, err)
+			}
+
+			imgURLs[n] = imgURL
+		}
+	}
+
+	pretty.Println(imgURLs)
+
 	return
 
 	// create the docs client
