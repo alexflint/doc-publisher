@@ -4,8 +4,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -95,9 +98,10 @@ func main() {
 		Document string
 		Upload   string
 		SaveZip  string
+		Output   string `arg:"-o,--output"`
 	}
-	args.Document = "1_4OtBmq2gG8zFnqTlAvpHc1sshfkv4hw3z62vHs4crI" // scratch document
-	//args.Document = "1px3ivo6aFqAi0TA4u9oJkxwsry1D5GYv76GZ4nV00Rk" // ground of optimization
+	//args.Document = "1_4OtBmq2gG8zFnqTlAvpHc1sshfkv4hw3z62vHs4crI" // sample for tinkering
+	args.Document = "1px3ivo6aFqAi0TA4u9oJkxwsry1D5GYv76GZ4nV00Rk" // ground of optimization
 	arg.MustParse(&args)
 
 	imgur := imgur.New(imgurAPIKey)
@@ -200,7 +204,13 @@ func main() {
 		fail("error decoding zip archive: %v", err)
 	}
 
-	imgURLs := make(map[int]string)
+	// open the image URL cache
+	err = os.MkdirAll(".image-url-cache", os.ModePerm)
+	if err != nil {
+		fail("error creating image URL cache dir: %v", err)
+	}
+
+	imageMap := make(map[int]string)
 	for _, f := range ziprd.File {
 		if strings.HasPrefix(f.Name, "images/image") {
 			fmt.Println(f.Name)
@@ -222,12 +232,41 @@ func main() {
 				fail("error reading %s from zip archive: %v", f.Name, err)
 			}
 
-			imgURL, err := imgur.Upload(ctx, buf)
-			if err != nil {
-				fail("error uploading %s to imgur: %v", f.Name, err)
+			hash := sha256.Sum256(buf)
+			hexhash := hex.EncodeToString(hash[:])
+			cachepath := ".image-url-cache/" + hexhash
+			urlbuf, err := ioutil.ReadFile(cachepath)
+			if err != nil && !os.IsNotExist(err) {
+				fail("error reading from %s: %v", cachepath, err)
 			}
 
-			imgURLs[n] = imgURL
+			var imgURL string
+			if len(urlbuf) > 0 {
+				// cache hit
+				imgURL = string(urlbuf)
+			} else {
+				// cache miss
+				imgURL, err := imgur.Upload(ctx, buf)
+				if err != nil {
+					fail("error uploading %s to imgur: %v", f.Name, err)
+				}
+
+				err = ioutil.WriteFile(cachepath, []byte(imgURL), os.ModePerm)
+				if err != nil {
+					fail("error storing uploaded image path to cache")
+				}
+			}
+
+			imageMap[n] = imgURL
+		}
+	}
+
+	images := make([]string, len(imageMap))
+	for i := range images {
+		var found bool
+		images[i], found = imageMap[i+1]
+		if !found {
+			fail("missing image%d.png in downloaded zip", i+1)
 		}
 	}
 
@@ -244,6 +283,7 @@ func main() {
 	}
 
 	// walk the document
+	var imageIndex int
 	var md bytes.Buffer
 	for _, elem := range doc.Body.Content {
 		switch {
@@ -276,6 +316,23 @@ func main() {
 				fmt.Fprintf(&md, "###### ")
 			}
 
+			if p.Bullet != nil {
+				list := doc.Lists[p.Bullet.ListId]
+				level := list.ListProperties.NestingLevels[p.Bullet.NestingLevel]
+
+				var i int64
+				for i = 0; i < p.Bullet.NestingLevel; i++ {
+					fmt.Fprintf(&md, "  ")
+				}
+
+				// if there is no fixed glyph symbol then this is an ordered list
+				if level.GlyphSymbol == "" {
+					fmt.Fprintf(&md, "1. ")
+				} else {
+					fmt.Fprintf(&md, "* ")
+				}
+			}
+
 			// print each text run in the paragraph
 			for _, el := range p.Elements {
 				switch {
@@ -301,10 +358,12 @@ func main() {
 
 					emb := obj.InlineObjectProperties.EmbeddedObject
 					switch {
-					case emb.ImageProperties != nil:
-						log.Println("warning: ignoring embedded image")
-					case emb.EmbeddedDrawingProperties != nil:
-						log.Println("warning: ignoring embedded drawing")
+					case emb.ImageProperties != nil || emb.EmbeddedDrawingProperties != nil:
+						if imageIndex >= len(images) {
+							fail("found %d images in zip but found more embedded images in the doc", len(images))
+						}
+						fmt.Fprintf(&md, "![%s](%s)", emb.Title, images[imageIndex])
+						imageIndex++
 					case emb.LinkedContentReference != nil:
 						log.Println("warning: ignoring linked spreadsheet / chart")
 					}
@@ -312,7 +371,6 @@ func main() {
 				case el.PageBreak != nil:
 					log.Println("  page break")
 				case el.TextRun != nil:
-					// TODO: implement styline
 					var surround string
 					if el.TextRun.TextStyle.Bold {
 						surround += "*"
@@ -343,18 +401,64 @@ func main() {
 						log.Println("warning: ignoring superscript")
 					}
 
-					fmt.Fprintf(&md, surround)
-					fmt.Fprintf(&md, el.TextRun.Content)
-					fmt.Fprintf(&md, reverse(surround))
+					content := el.TextRun.Content
+					content = strings.Replace(content, `“`, `"`, -1)
+					content = strings.Replace(content, `”`, `"`, -1)
+
+					// in markdown we must apply styling separately to each line
+					lines := strings.Split(content, "\n")
+					for i, line := range lines {
+						if len(line) == 0 {
+							continue
+						}
+						fmt.Fprintf(&md, surround)
+						fmt.Fprintf(&md, line)
+						fmt.Fprintf(&md, reverse(surround))
+						if i+1 < len(lines) {
+							fmt.Fprintf(&md, "\n")
+						}
+					}
+
 				default:
 					log.Println("warning: encountered a paragraph element of unknown type")
 				}
 			}
+			fmt.Fprint(&md, "\n\n")
 		default:
 			log.Println("warning: encountered a body element of unknown type")
 		}
 	}
 
-	fmt.Println()
-	fmt.Println(md.String())
+	// drop sequences of more than 3 newlines
+	var consecutiveNewlines int
+	var final strings.Builder
+	final.Grow(md.Len())
+	for {
+		r, _, err := md.ReadRune()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			fail("error reading runes from markdown buffer: %v", err)
+		}
+
+		if r == '\n' {
+			consecutiveNewlines++
+		} else {
+			consecutiveNewlines = 0
+		}
+
+		if consecutiveNewlines <= 2 {
+			final.WriteRune(r)
+		}
+	}
+
+	if args.Output == "" {
+		fmt.Println(final.String())
+	} else {
+		err = ioutil.WriteFile(args.Output, []byte(final.String()), os.ModePerm)
+		if err != nil {
+			fail("error writing markdown to %s: %v", args.Output, err)
+		}
+	}
 }
