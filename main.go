@@ -15,7 +15,6 @@ import (
 	"github.com/alexflint/doc-publisher/imgur"
 	"github.com/alexflint/doc-publisher/lesswrong"
 	"github.com/alexflint/go-arg"
-	"github.com/kr/pretty"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/docs/v1"
@@ -26,6 +25,17 @@ import (
 func fail(msg interface{}, parts ...interface{}) {
 	fmt.Printf(fmt.Sprintf("%v\n", msg), parts...)
 	os.Exit(1)
+}
+
+// reverse reverses a string
+func reverse(s string) string {
+	rs := make([]rune, len(s))
+	var n int
+	for i, r := range s {
+		rs[len(s)-i-1] = r
+		n++
+	}
+	return string(rs[len(s)-n : len(s)])
 }
 
 // Requests a token from the web, then returns the retrieved token.
@@ -86,8 +96,8 @@ func main() {
 		Upload   string
 		SaveZip  string
 	}
-	//args.Document = "1_4OtBmq2gG8zFnqTlAvpHc1sshfkv4hw3z62vHs4crI" // scratch document
-	args.Document = "1px3ivo6aFqAi0TA4u9oJkxwsry1D5GYv76GZ4nV00Rk" // ground of optimization
+	args.Document = "1_4OtBmq2gG8zFnqTlAvpHc1sshfkv4hw3z62vHs4crI" // scratch document
+	//args.Document = "1px3ivo6aFqAi0TA4u9oJkxwsry1D5GYv76GZ4nV00Rk" // ground of optimization
 	arg.MustParse(&args)
 
 	imgur := imgur.New(imgurAPIKey)
@@ -233,57 +243,118 @@ func main() {
 		fail("error retrieving document: %v", err)
 	}
 
-	fmt.Println(doc.Title)
-
 	// walk the document
+	var md bytes.Buffer
 	for _, elem := range doc.Body.Content {
 		switch {
+		case elem.Table != nil:
+			// TODO: implement
+			log.Println("warning: ignoring table")
+		case elem.TableOfContents != nil:
+			// TODO: implement
+			log.Println("warning: ignoring table of contents")
+		case elem.SectionBreak != nil:
+			log.Println("warning: ignoring section break")
 		case elem.Paragraph != nil:
-			fmt.Println("paragraph")
 			p := elem.Paragraph
+
+			// print the heading
+			switch p.ParagraphStyle.NamedStyleType {
+			case "TITLE":
+				fmt.Fprintf(&md, "# ")
+			case "HEADING_1":
+				fmt.Fprintf(&md, "# ")
+			case "HEADING_2":
+				fmt.Fprintf(&md, "## ")
+			case "HEADING_3":
+				fmt.Fprintf(&md, "### ")
+			case "HEADING_4":
+				fmt.Fprintf(&md, "#### ")
+			case "HEADING_5":
+				fmt.Fprintf(&md, "##### ")
+			case "HEADING_6":
+				fmt.Fprintf(&md, "###### ")
+			}
+
+			// print each text run in the paragraph
 			for _, el := range p.Elements {
 				switch {
 				case el.ColumnBreak != nil:
-					fmt.Println("  column break")
+					log.Println("warning: ignoring column break")
 				case el.Equation != nil:
-					fmt.Println("  equation")
+					// TODO: implement
+					log.Println("warning: ignoring equation")
 				case el.FootnoteReference != nil:
-					fmt.Println("  footnote ref")
+					// TODO: implement
+					log.Println("warning: ignoring footnote")
+				case el.AutoText != nil:
+					log.Println("warning: ignoring auto text")
 				case el.HorizontalRule != nil:
-					fmt.Println("  horizontal rule")
+					fmt.Fprintf(&md, "\n---\n")
 				case el.InlineObjectElement != nil:
-					localID := el.InlineObjectElement.InlineObjectId
-					obj, ok := doc.InlineObjects[localID]
+					id := el.InlineObjectElement.InlineObjectId
+					obj, ok := doc.InlineObjects[id]
 					if !ok {
-						fmt.Println("could not find inline object for id", localID)
+						fmt.Println("warning: could not find inline object for id", id)
 						continue
 					}
+
 					emb := obj.InlineObjectProperties.EmbeddedObject
-					if emb == nil {
-						fmt.Println("not an embedded objet")
-						continue
+					switch {
+					case emb.ImageProperties != nil:
+						log.Println("warning: ignoring embedded image")
+					case emb.EmbeddedDrawingProperties != nil:
+						log.Println("warning: ignoring embedded drawing")
+					case emb.LinkedContentReference != nil:
+						log.Println("warning: ignoring linked spreadsheet / chart")
 					}
-					if emb.EmbeddedDrawingProperties == nil {
-						fmt.Println("not a drawing")
-						continue
-					}
-					fmt.Println("found a drawing:")
-					pretty.Println(emb)
 
 				case el.PageBreak != nil:
-					fmt.Println("  page break")
+					log.Println("  page break")
 				case el.TextRun != nil:
-					fmt.Println("  text run")
+					// TODO: implement styline
+					var surround string
+					if el.TextRun.TextStyle.Bold {
+						surround += "*"
+					}
+					if el.TextRun.TextStyle.Italic {
+						surround += "_"
+					}
+					if el.TextRun.TextStyle.Strikethrough {
+						surround += "-"
+					}
+					if el.TextRun.TextStyle.Underline {
+						log.Println("warning: ignoring underlined text")
+					}
+					if el.TextRun.TextStyle.SmallCaps {
+						log.Println("warning: ignoring smallcaps")
+					}
+					if el.TextRun.TextStyle.BackgroundColor != nil {
+						log.Println("warning: ignoring text with background color")
+					}
+					if el.TextRun.TextStyle.ForegroundColor != nil {
+						log.Println("warning: ignoring text with foreground color")
+					}
+
+					switch el.TextRun.TextStyle.BaselineOffset {
+					case "SUBSCRIPT":
+						log.Println("warning: ignoring subscript")
+					case "SUPERSCRIPT":
+						log.Println("warning: ignoring superscript")
+					}
+
+					fmt.Fprintf(&md, surround)
+					fmt.Fprintf(&md, el.TextRun.Content)
+					fmt.Fprintf(&md, reverse(surround))
+				default:
+					log.Println("warning: encountered a paragraph element of unknown type")
 				}
 			}
-		case elem.Table != nil:
-			fmt.Println("table")
-		case elem.TableOfContents != nil:
-			fmt.Println("toc")
-		case elem.SectionBreak != nil:
-			fmt.Println("section break")
 		default:
-			fmt.Println("unknown!")
+			log.Println("warning: encountered a body element of unknown type")
 		}
 	}
+
+	fmt.Println()
+	fmt.Println(md.String())
 }
