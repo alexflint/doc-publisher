@@ -221,10 +221,6 @@ func main() {
 		}
 	}
 
-	pretty.Println(imgURLs)
-
-	return
-
 	// create the docs client
 	docsClient, err := docs.New(client)
 	if err != nil {
@@ -236,6 +232,7 @@ func main() {
 	if err != nil {
 		fail("error retrieving document: %v", err)
 	}
+
 	fmt.Println(doc.Title)
 
 	// walk the document
