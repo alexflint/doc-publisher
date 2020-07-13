@@ -93,22 +93,28 @@ func saveToken(path string, token *oauth2.Token) error {
 	return json.NewEncoder(f).Encode(token)
 }
 
-const imgurAPIKey = "ac9d94aa284ff2a"
+const imgurAPIKey = "" // enter an imgur API key here, or use --imgur-api-key on command line
 
 func main() {
 	ctx := context.Background()
 
 	// parse command line args
 	var args struct {
-		Password string `arg:"-p,--password"`
-		Document string
-		Upload   string
-		SaveZip  string
-		Output   string `arg:"-o,--output"`
+		Password    string `arg:"-p,--password"`
+		Document    string
+		Upload      string
+		SaveZip     string
+		Output      string `arg:"-o,--output"`
+		ImgurAPIKey string `arg:"--imgur-api-key,env:IMGUR_API_KEY,required"`
 	}
 	//args.Document = "1_4OtBmq2gG8zFnqTlAvpHc1sshfkv4hw3z62vHs4crI" // sample for tinkering
 	args.Document = "1px3ivo6aFqAi0TA4u9oJkxwsry1D5GYv76GZ4nV00Rk" // ground of optimization
-	arg.MustParse(&args)
+	args.ImgurAPIKey = imgurAPIKey
+	p := arg.MustParse(&args)
+
+	if args.ImgurAPIKey == "" {
+
+	}
 
 	imgur := imgur.New(imgurAPIKey)
 
