@@ -1,5 +1,11 @@
 package main
 
+// TODO:
+//   deal with emphasizing text runs that end with whitespace
+//   deal with tables
+//   deal with equations
+//   detect code blocks
+
 import (
 	"archive/zip"
 	"bytes"
@@ -12,7 +18,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"strconv"
+	"regexp"
 	"strings"
 
 	"github.com/alexflint/doc-publisher/imgur"
@@ -210,17 +216,34 @@ func main() {
 		fail("error creating image URL cache dir: %v", err)
 	}
 
-	imageMap := make(map[int]string)
+	var foundHTML bool
+	var imageOrder []string
+	imageURLByFilename := make(map[string]string)
 	for _, f := range ziprd.File {
+		if strings.HasSuffix(f.Name, ".html") {
+			foundHTML = true
+			r, err := f.Open()
+			if err != nil {
+				fail("error opening %s from zip archive: %v", f.Name, err)
+			}
+
+			buf, err := ioutil.ReadAll(r)
+			if err != nil {
+				fail("error reading %s from zip archive: %v", f.Name, err)
+			}
+
+			re, err := regexp.Compile(`images\/image\d+\.png`)
+			if err != nil {
+				fail("error compiling regexp: %v", err)
+			}
+
+			matches := re.FindAll(buf, -1)
+			for _, m := range matches {
+				imageOrder = append(imageOrder, string(m))
+			}
+		}
 		if strings.HasPrefix(f.Name, "images/image") {
 			fmt.Println(f.Name)
-
-			s := strings.TrimPrefix(f.Name, "images/image")
-			s = strings.TrimSuffix(s, ".png")
-			n, err := strconv.Atoi(s)
-			if err != nil {
-				fail("error interpreting image filename %q: expected 'images/imageN.png'", f.Name)
-			}
 
 			r, err := f.Open()
 			if err != nil {
@@ -257,18 +280,15 @@ func main() {
 				}
 			}
 
-			imageMap[n] = imgURL
+			imageURLByFilename[f.Name] = imgURL
 		}
 	}
 
-	images := make([]string, len(imageMap))
-	for i := range images {
-		var found bool
-		images[i], found = imageMap[i+1]
-		if !found {
-			fail("missing image%d.png in downloaded zip", i+1)
-		}
+	if !foundHTML {
+		fail("no html file found in downloaded zip archive")
 	}
+
+	fmt.Println(imageOrder)
 
 	// create the docs client
 	docsClient, err := docs.New(client)
@@ -359,10 +379,15 @@ func main() {
 					emb := obj.InlineObjectProperties.EmbeddedObject
 					switch {
 					case emb.ImageProperties != nil || emb.EmbeddedDrawingProperties != nil:
-						if imageIndex >= len(images) {
-							fail("found %d images in zip but found more embedded images in the doc", len(images))
+						if imageIndex >= len(imageOrder) {
+							fail("found %d images in zip but too many objects in the doc", len(imageOrder))
 						}
-						fmt.Fprintf(&md, "![%s](%s)", emb.Title, images[imageIndex])
+						imageFilename := imageOrder[imageIndex]
+						imageURL, ok := imageURLByFilename[imageFilename]
+						if !ok {
+							fail("no URL found for %s", imageFilename)
+						}
+						fmt.Fprintf(&md, "![%s](%s)", emb.Title, imageURL)
 						imageIndex++
 					case emb.LinkedContentReference != nil:
 						log.Println("warning: ignoring linked spreadsheet / chart")
@@ -372,26 +397,26 @@ func main() {
 					log.Println("  page break")
 				case el.TextRun != nil:
 					var surround string
-					if el.TextRun.TextStyle.Bold {
-						surround += "*"
-					}
 					if el.TextRun.TextStyle.Italic {
-						surround += "_"
+						surround = "*"
+					}
+					if el.TextRun.TextStyle.Bold {
+						surround = "**"
 					}
 					if el.TextRun.TextStyle.Strikethrough {
-						surround += "-"
+						surround = "-"
 					}
 					if el.TextRun.TextStyle.Underline {
-						log.Println("warning: ignoring underlined text")
+						log.Printf("warning: ignoring underlined text (%q)", el.TextRun.Content)
 					}
 					if el.TextRun.TextStyle.SmallCaps {
-						log.Println("warning: ignoring smallcaps")
+						log.Printf("warning: ignoring smallcaps (%q)", el.TextRun.Content)
 					}
 					if el.TextRun.TextStyle.BackgroundColor != nil {
-						log.Println("warning: ignoring text with background color")
+						log.Printf("warning: ignoring text with background color (%q)", el.TextRun.Content)
 					}
 					if el.TextRun.TextStyle.ForegroundColor != nil {
-						log.Println("warning: ignoring text with foreground color")
+						log.Printf("warning: ignoring text with foreground color (%q)", el.TextRun.Content)
 					}
 
 					switch el.TextRun.TextStyle.BaselineOffset {
@@ -405,15 +430,27 @@ func main() {
 					content = strings.Replace(content, `“`, `"`, -1)
 					content = strings.Replace(content, `”`, `"`, -1)
 
+					link := el.TextRun.TextStyle.Link
+
 					// in markdown we must apply styling separately to each line
 					lines := strings.Split(content, "\n")
 					for i, line := range lines {
 						if len(line) == 0 {
 							continue
 						}
+
+						if link != nil {
+							fmt.Fprint(&md, "[")
+						}
+
 						fmt.Fprintf(&md, surround)
 						fmt.Fprintf(&md, line)
 						fmt.Fprintf(&md, reverse(surround))
+
+						if link != nil {
+							fmt.Fprintf(&md, "](%s)", link.Url)
+						}
+
 						if i+1 < len(lines) {
 							fmt.Fprintf(&md, "\n")
 						}
