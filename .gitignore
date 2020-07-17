@@ -17,3 +17,6 @@
 oauth_credentials.json
 token.json
 /out/
+/scratch/
+/.image-url-cache/
+/doc-publisher
