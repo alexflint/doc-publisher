@@ -14,6 +14,7 @@ type pullArgs struct {
 
 type pushArgs struct {
 	LessWrong *pushToLesswrongArgs `arg:"subcommand"`
+	GoogleDoc *pushGoogleDocArgs   `arg:"subcommand"`
 }
 
 type args struct {
@@ -42,6 +43,8 @@ func main() {
 		switch {
 		case args.Push.LessWrong != nil:
 			err = pushToLesswrong(ctx, args.Push.LessWrong)
+		case args.Push.GoogleDoc != nil:
+			err = pushGoogleDoc(ctx, args.Push.GoogleDoc)
 		default:
 			p.Fail("push requires a subcommand")
 		}

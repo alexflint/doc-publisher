@@ -12,7 +12,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,10 +22,8 @@ import (
 	"strings"
 
 	"github.com/alexflint/doc-publisher/imgur"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 	"google.golang.org/api/docs/v1"
-	"google.golang.org/api/drive/v2"
+	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 )
 
@@ -39,52 +36,6 @@ func reverse(s string) string {
 		n++
 	}
 	return string(rs[len(s)-n : len(s)])
-}
-
-// Requests a token from the web, then returns the retrieved token.
-func tokenFromOauth(ctx context.Context, config *oauth2.Config) (*oauth2.Token, error) {
-	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to the following link in your browser then type the "+
-		"authorization code: \n%v\n", authURL)
-
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		return nil, fmt.Errorf("unable to read authorization code: %w", err)
-	}
-
-	tok, err := config.Exchange(ctx, authCode)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving token from web: %w", err)
-	}
-	return tok, nil
-}
-
-// Retrieves a token from a local file.
-func tokenFromFile(file string) (*oauth2.Token, error) {
-	f, err := os.Open(file)
-	defer f.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	var tok oauth2.Token
-	err = json.NewDecoder(f).Decode(&tok)
-	if err != nil {
-		return nil, err
-	}
-
-	return &tok, nil
-}
-
-// Saves a token to a file path.
-func saveToken(path string, token *oauth2.Token) error {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	defer f.Close()
-	if err != nil {
-		return err
-	}
-
-	return json.NewEncoder(f).Encode(token)
 }
 
 type pullGoogleDocArgs struct {
@@ -101,36 +52,13 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 
 	imgur := imgur.New(args.ImgurAPIKey)
 
-	// authenticate to google
-	b, err := ioutil.ReadFile("oauth_credentials.json")
-	if err != nil {
-		return fmt.Errorf("unable to read client secret file: %w", err)
-	}
-
-	config, err := google.ConfigFromJSON(b,
+	const tokFile = ".cache/google-pull-token.json"
+	googleToken, err := GoogleAuth(ctx, tokFile,
 		"https://www.googleapis.com/auth/documents.readonly",
 		"https://www.googleapis.com/auth/drive.readonly")
-	if err != nil {
-		return fmt.Errorf("unable to parse client secret file to config: %w", err)
-	}
-
-	// do the oauth flow
-	tokFile := "token.json"
-	tok, err := tokenFromFile(tokFile)
-	if err != nil {
-		tok, err = tokenFromOauth(ctx, config)
-		if err != nil {
-			return fmt.Errorf("error in oauth flow: %w", err)
-		}
-		err = saveToken(tokFile, tok)
-		if err != nil {
-			return fmt.Errorf("error saving token to file: %w", err)
-		}
-	}
-	client := config.Client(context.Background(), tok)
 
 	// create the drive client
-	driveClient, err := drive.NewService(ctx, option.WithHTTPClient(client))
+	driveClient, err := drive.NewService(ctx, option.WithTokenSource(googleToken)) // option.WithHTTPClient(googleClient))
 	if err != nil {
 		return fmt.Errorf("error creating drive client: %w", err)
 	}
@@ -162,7 +90,7 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 	}
 
 	// open the image URL cache
-	err = os.MkdirAll(".image-url-cache", os.ModePerm)
+	err = os.MkdirAll(".cache/image-urls", os.ModePerm)
 	if err != nil {
 		return fmt.Errorf("error creating image URL cache dir: %w", err)
 	}
@@ -215,6 +143,7 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 			}
 
 			var imgURL string
+			urlbuf = []byte("foo")
 			if len(urlbuf) > 0 {
 				// cache hit
 				imgURL = string(urlbuf)
@@ -242,7 +171,7 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 	fmt.Println(imageOrder)
 
 	// create the docs client
-	docsClient, err := docs.New(client)
+	docsClient, err := docs.NewService(ctx, option.WithTokenSource(googleToken))
 	if err != nil {
 		return fmt.Errorf("error creating docs client: %w", err)
 	}
