@@ -142,7 +142,7 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 			}
 
 			hash := sha256.Sum256(buf)
-			hexhash := hex.EncodeToString(hash[:])
+			hexhash := hex.EncodeToString(hash[:8]) // we just take the first 8 bytes for brevity
 			cachepath := ".cache/image-urls/" + hexhash
 			urlbuf, err := ioutil.ReadFile(cachepath)
 			if err != nil && !os.IsNotExist(err) {
