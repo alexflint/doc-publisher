@@ -61,6 +61,7 @@ func (ts googleTokenSource) Token() (*oauth2.Token, error) {
 	}
 
 	if ts.tokFile != "" {
+		fmt.Printf("storing token to %s\n", ts.tokFile)
 		err = saveToken(ts.tokFile, tok)
 		if err != nil {
 			return nil, fmt.Errorf("error saving token to file: %w", err)
@@ -85,12 +86,14 @@ func GoogleAuth(ctx context.Context, tokFile string, scopes ...string) (oauth2.T
 
 	// create a token source that performs the oauth flow
 	var ts oauth2.TokenSource = googleTokenSource{
-		ctx:    ctx,
-		config: config,
+		ctx:     ctx,
+		config:  config,
+		tokFile: tokFile,
 	}
 
 	// try load the token from a file
 	tok, err := tokenFromFile(tokFile)
+	fmt.Printf("looking for token at %s\n", tokFile)
 	if err == nil {
 		ts = oauth2.ReuseTokenSource(tok, ts)
 	}
