@@ -12,7 +12,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -21,7 +20,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/alexflint/doc-publisher/imgur"
+	"cloud.google.com/go/storage"
 	"google.golang.org/api/docs/v1"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
@@ -39,18 +38,18 @@ func reverse(s string) string {
 }
 
 type pullGoogleDocArgs struct {
-	Document    string
-	SaveZip     string
-	Output      string `arg:"-o,--output"`
-	ImgurAPIKey string `arg:"--imgur-api-key,env:IMGUR_API_KEY"`
+	Document string
+	SaveZip  string
+	Output   string `arg:"-o,--output"`
+	//ImgurAPIKey string `arg:"--imgur-api-key,env:IMGUR_API_KEY"`
 }
 
 func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
-	if args.ImgurAPIKey == "" {
-		return errors.New("please specify an imgur API key with --imgur-api-key")
-	}
+	// if args.ImgurAPIKey == "" {
+	// 	return errors.New("please specify an imgur API key with --imgur-api-key")
+	// }
 
-	imgur := imgur.New(args.ImgurAPIKey)
+	// imgur := imgur.New(args.ImgurAPIKey)
 
 	const tokFile = ".cache/google-pull-token.json"
 	googleToken, err := GoogleAuth(ctx, tokFile,
@@ -83,7 +82,15 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 		fmt.Printf("wrote %d bytes to %s\n", len(zipbuf), args.SaveZip)
 	}
 
-	// upload each image to imgur
+	// create a cloud storage client
+	storageClient, err := storage.NewClient(ctx)
+	if err != nil {
+		return fmt.Errorf("error creating storage client: %w", err)
+	}
+
+	imageBucket := storageClient.Bucket("doc-publisher-images")
+
+	// open the zip file
 	ziprd, err := zip.NewReader(bytes.NewReader(zipbuf), int64(len(zipbuf)))
 	if err != nil {
 		return fmt.Errorf("error decoding zip archive: %w", err)
@@ -136,29 +143,38 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 
 			hash := sha256.Sum256(buf)
 			hexhash := hex.EncodeToString(hash[:])
-			cachepath := ".image-url-cache/" + hexhash
+			cachepath := ".cache/image-urls/" + hexhash
 			urlbuf, err := ioutil.ReadFile(cachepath)
 			if err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("error reading from %s: %w", cachepath, err)
 			}
 
 			var imgURL string
-			urlbuf = []byte("foo")
 			if len(urlbuf) > 0 {
 				// cache hit
 				imgURL = string(urlbuf)
 			} else {
 				// cache miss
-				imgURL, err := imgur.Upload(ctx, buf)
+				name := hexhash + ".jpg"
+				obj := imageBucket.Object(name)
+				wr := obj.NewWriter(ctx)
+				defer wr.Close()
+
+				_, err := wr.Write(buf)
 				if err != nil {
-					return fmt.Errorf("error uploading %s to imgur: %w", f.Name, err)
+					return fmt.Errorf("error writing %s to cloud storage: %w", f.Name, err)
 				}
+				wr.Close()
+
+				imgURL = fmt.Sprintf("https://storage.googleapis.com/%s/%s", obj.BucketName(), obj.ObjectName())
 
 				err = ioutil.WriteFile(cachepath, []byte(imgURL), 0666)
 				if err != nil {
 					return fmt.Errorf("error storing uploaded image path to cache: %w", err)
 				}
 			}
+
+			fmt.Printf("%s => %s\n", f.Name, imgURL)
 
 			imageURLByFilename[f.Name] = imgURL
 		}

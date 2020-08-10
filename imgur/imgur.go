@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -46,6 +47,7 @@ func (c *Client) Upload(ctx context.Context, buf []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	fmt.Printf("authorizing to imgur with %s\b", c.APIKey)
 	req.Header.Set("Authorization", "Client-ID "+c.APIKey)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
@@ -56,6 +58,8 @@ func (c *Client) Upload(ctx context.Context, buf []byte) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		buf, _ := ioutil.ReadAll(resp.Body)
+		fmt.Println(string(buf))
 		return "", fmt.Errorf("server said: %s", resp.Status)
 	}
 

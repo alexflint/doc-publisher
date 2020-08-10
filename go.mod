@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	cloud.google.com/go v0.57.0 // indirect
+	cloud.google.com/go/storage v1.6.0
 	github.com/alexflint/go-arg v1.3.0
 	github.com/golang/protobuf v1.4.2 // indirect
 	github.com/gorilla/websocket v1.4.2
