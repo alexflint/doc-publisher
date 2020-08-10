@@ -129,8 +129,7 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 			}
 		}
 		if strings.HasPrefix(f.Name, "images/image") {
-			fmt.Println(f.Name)
-
+			// read the image from the zip archive
 			r, err := f.Open()
 			if err != nil {
 				return fmt.Errorf("error opening %s from zip archive: %w", f.Name, err)
@@ -141,42 +140,25 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 				return fmt.Errorf("error reading %s from zip archive: %w", f.Name, err)
 			}
 
+			// write the image to cloud storage
 			hash := sha256.Sum256(buf)
 			hexhash := hex.EncodeToString(hash[:8]) // we just take the first 8 bytes for brevity
-			cachepath := ".cache/image-urls/" + hexhash
-			urlbuf, err := ioutil.ReadFile(cachepath)
-			if err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("error reading from %s: %w", cachepath, err)
+			name := hexhash + ".jpg"
+			obj := imageBucket.Object(name)
+
+			wr := obj.NewWriter(ctx)
+			defer wr.Close()
+
+			_, err = wr.Write(buf)
+			if err != nil {
+				return fmt.Errorf("error writing %s to cloud storage: %w", f.Name, err)
 			}
+			wr.Close()
 
-			var imgURL string
-			if len(urlbuf) > 0 {
-				// cache hit
-				imgURL = string(urlbuf)
-			} else {
-				// cache miss
-				name := hexhash + ".jpg"
-				obj := imageBucket.Object(name)
-				wr := obj.NewWriter(ctx)
-				defer wr.Close()
-
-				_, err := wr.Write(buf)
-				if err != nil {
-					return fmt.Errorf("error writing %s to cloud storage: %w", f.Name, err)
-				}
-				wr.Close()
-
-				imgURL = fmt.Sprintf("https://storage.googleapis.com/%s/%s", obj.BucketName(), obj.ObjectName())
-
-				err = ioutil.WriteFile(cachepath, []byte(imgURL), 0666)
-				if err != nil {
-					return fmt.Errorf("error storing uploaded image path to cache: %w", err)
-				}
-			}
-
-			fmt.Printf("%s => %s\n", f.Name, imgURL)
-
+			// store the URL in the map
+			imgURL := fmt.Sprintf("https://storage.googleapis.com/%s/%s", obj.BucketName(), obj.ObjectName())
 			imageURLByFilename[f.Name] = imgURL
+			fmt.Printf("%s => %s\n", f.Name, imgURL)
 		}
 	}
 
