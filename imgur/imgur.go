@@ -47,7 +47,6 @@ func (c *Client) Upload(ctx context.Context, buf []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	fmt.Printf("authorizing to imgur with %s\b", c.APIKey)
 	req.Header.Set("Authorization", "Client-ID "+c.APIKey)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
