@@ -26,31 +26,30 @@ import (
 	"google.golang.org/api/option"
 )
 
-// reverse reverses a string
-func reverse(s string) string {
-	rs := make([]rune, len(s))
-	var n int
-	for i, r := range s {
-		rs[len(s)-i-1] = r
-		n++
+// determine whether a font is monospace (for detecting code blocks)
+func isMonospace(font *docs.WeightedFontFamily) bool {
+	if font == nil {
+		return false
 	}
-	return string(rs[len(s)-n : len(s)])
+
+	switch strings.ToLower(font.FontFamily) {
+	case "courier new":
+		return true
+	case "consolas":
+		return true
+	case "roboto mono":
+		return true
+	}
+	return false
 }
 
 type pullGoogleDocArgs struct {
 	Document string
 	SaveZip  string
 	Output   string `arg:"-o,--output"`
-	//ImgurAPIKey string `arg:"--imgur-api-key,env:IMGUR_API_KEY"`
 }
 
 func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
-	// if args.ImgurAPIKey == "" {
-	// 	return errors.New("please specify an imgur API key with --imgur-api-key")
-	// }
-
-	// imgur := imgur.New(args.ImgurAPIKey)
-
 	const tokFile = ".cache/google-pull-token.json"
 	googleToken, err := GoogleAuth(ctx, tokFile,
 		"https://www.googleapis.com/auth/documents.readonly",
@@ -180,176 +179,47 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 		return fmt.Errorf("error retrieving document: %w", err)
 	}
 
-	// walk the document
-	var imageIndex int
-	var md bytes.Buffer
-	for _, elem := range doc.Body.Content {
-		switch {
-		case elem.Table != nil:
-			// TODO: implement
-			log.Println("warning: ignoring table")
-		case elem.TableOfContents != nil:
-			// TODO: implement
-			log.Println("warning: ignoring table of contents")
-		case elem.SectionBreak != nil:
-			log.Println("warning: ignoring section break")
-		case elem.Paragraph != nil:
-			p := elem.Paragraph
+	// convert the document to markdown
+	converter := docConverter{
+		doc: doc,
+	}
+	for _, imageFilename := range imageOrder {
+		converter.imageURLs = append(converter.imageURLs, imageURLByFilename[imageFilename])
+	}
 
-			// print the heading
-			switch p.ParagraphStyle.NamedStyleType {
-			case "TITLE":
-				fmt.Fprintf(&md, "# ")
-			case "HEADING_1":
-				fmt.Fprintf(&md, "# ")
-			case "HEADING_2":
-				fmt.Fprintf(&md, "## ")
-			case "HEADING_3":
-				fmt.Fprintf(&md, "### ")
-			case "HEADING_4":
-				fmt.Fprintf(&md, "#### ")
-			case "HEADING_5":
-				fmt.Fprintf(&md, "##### ")
-			case "HEADING_6":
-				fmt.Fprintf(&md, "###### ")
-			}
+	// process the main body content
+	var markdown bytes.Buffer
+	err = converter.process(&markdown, doc.Body.Content)
+	if err != nil {
+		return fmt.Errorf("error converting document body to markdown: %w", err)
+	}
 
-			if p.Bullet != nil {
-				list := doc.Lists[p.Bullet.ListId]
-				level := list.ListProperties.NestingLevels[p.Bullet.NestingLevel]
-
-				var i int64
-				for i = 0; i < p.Bullet.NestingLevel; i++ {
-					fmt.Fprintf(&md, "  ")
-				}
-
-				// if there is no fixed glyph symbol then this is an ordered list
-				if level.GlyphSymbol == "" {
-					fmt.Fprintf(&md, "1. ")
-				} else {
-					fmt.Fprintf(&md, "* ")
-				}
-			}
-
-			// print each text run in the paragraph
-			for _, el := range p.Elements {
-				switch {
-				case el.ColumnBreak != nil:
-					log.Println("warning: ignoring column break")
-				case el.Equation != nil:
-					// TODO: implement
-					log.Println("warning: ignoring equation")
-				case el.FootnoteReference != nil:
-					// TODO: implement
-					log.Println("warning: ignoring footnote")
-				case el.AutoText != nil:
-					log.Println("warning: ignoring auto text")
-				case el.HorizontalRule != nil:
-					fmt.Fprintf(&md, "\n---\n")
-				case el.InlineObjectElement != nil:
-					id := el.InlineObjectElement.InlineObjectId
-					obj, ok := doc.InlineObjects[id]
-					if !ok {
-						fmt.Println("warning: could not find inline object for id", id)
-						continue
-					}
-
-					emb := obj.InlineObjectProperties.EmbeddedObject
-					switch {
-					case emb.ImageProperties != nil || emb.EmbeddedDrawingProperties != nil:
-						if imageIndex >= len(imageOrder) {
-							return fmt.Errorf("found %d images in zip but too many objects in the doc", len(imageOrder))
-						}
-						imageFilename := imageOrder[imageIndex]
-						imageURL, ok := imageURLByFilename[imageFilename]
-						if !ok {
-							return fmt.Errorf("no URL found for %s", imageFilename)
-						}
-						fmt.Fprintf(&md, "![%s](%s)", emb.Title, imageURL)
-						imageIndex++
-					case emb.LinkedContentReference != nil:
-						log.Println("warning: ignoring linked spreadsheet / chart")
-					}
-
-				case el.PageBreak != nil:
-					log.Println("  page break")
-				case el.TextRun != nil:
-					var surround string
-					if el.TextRun.TextStyle.Italic {
-						surround = "*"
-					}
-					if el.TextRun.TextStyle.Bold {
-						surround = "**"
-					}
-					if el.TextRun.TextStyle.Strikethrough {
-						surround = "-"
-					}
-					if el.TextRun.TextStyle.Underline {
-						log.Printf("warning: ignoring underlined text (%q)", el.TextRun.Content)
-					}
-					if el.TextRun.TextStyle.SmallCaps {
-						log.Printf("warning: ignoring smallcaps (%q)", el.TextRun.Content)
-					}
-					if el.TextRun.TextStyle.BackgroundColor != nil {
-						log.Printf("warning: ignoring text with background color (%q)", el.TextRun.Content)
-					}
-					if el.TextRun.TextStyle.ForegroundColor != nil {
-						log.Printf("warning: ignoring text with foreground color (%q)", el.TextRun.Content)
-					}
-
-					switch el.TextRun.TextStyle.BaselineOffset {
-					case "SUBSCRIPT":
-						log.Println("warning: ignoring subscript")
-					case "SUPERSCRIPT":
-						log.Println("warning: ignoring superscript")
-					}
-
-					content := el.TextRun.Content
-					content = strings.Replace(content, `“`, `"`, -1)
-					content = strings.Replace(content, `”`, `"`, -1)
-
-					link := el.TextRun.TextStyle.Link
-
-					// in markdown we must apply styling separately to each line
-					lines := strings.Split(content, "\n")
-					for i, line := range lines {
-						if len(line) == 0 {
-							continue
-						}
-
-						if link != nil {
-							fmt.Fprint(&md, "[")
-						}
-
-						fmt.Fprintf(&md, surround)
-						fmt.Fprintf(&md, line)
-						fmt.Fprintf(&md, reverse(surround))
-
-						if link != nil {
-							fmt.Fprintf(&md, "](%s)", link.Url)
-						}
-
-						if i+1 < len(lines) {
-							fmt.Fprintf(&md, "\n")
-						}
-					}
-
-				default:
-					log.Println("warning: encountered a paragraph element of unknown type")
-				}
-			}
-			fmt.Fprint(&md, "\n\n")
-		default:
-			log.Println("warning: encountered a body element of unknown type")
+	// process each footnote
+	for _, footnote := range doc.Footnotes {
+		var footnoteMarkdown bytes.Buffer
+		err = converter.process(&footnoteMarkdown, footnote.Content)
+		if err != nil {
+			return fmt.Errorf("error converting footnote %s content to markdown: %w", footnote.FootnoteId, err)
 		}
+
+		fmt.Fprintf(&markdown, "[^%s]: ", footnote.FootnoteId)
+		for i, line := range strings.Split(footnoteMarkdown.String(), "\n") {
+			if i > 0 {
+				fmt.Fprint(&markdown, "    ") // multi-line footnotes in markdown must be indented
+			}
+
+			fmt.Fprintln(&markdown, line)
+		}
+
+		fmt.Fprint(&markdown, "\n") // make sure there is an empty line between each footnote
 	}
 
 	// drop sequences of more than 3 newlines
 	var consecutiveNewlines int
 	var final strings.Builder
-	final.Grow(md.Len())
+	final.Grow(markdown.Len())
 	for {
-		r, _, err := md.ReadRune()
+		r, _, err := markdown.ReadRune()
 		if err == io.EOF {
 			break
 		}
@@ -374,6 +244,261 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 		err = ioutil.WriteFile(args.Output, []byte(final.String()), 0666)
 		if err != nil {
 			return fmt.Errorf("error writing markdown to %s: %w", args.Output, err)
+		}
+	}
+
+	return nil
+}
+
+type docConverter struct {
+	doc        *docs.Document
+	imageURLs  []string
+	imageIndex int
+	codeBlock  bytes.Buffer // text identified as lines of code
+}
+
+func (dc *docConverter) process(out *bytes.Buffer, content []*docs.StructuralElement) error {
+	// walk the document
+	for _, elem := range content {
+		switch {
+		case elem.Table != nil:
+			// TODO: implement
+			dc.flushCodeBlock(out)
+			log.Println("warning: ignoring table")
+		case elem.TableOfContents != nil:
+			// TODO: implement
+			dc.flushCodeBlock(out)
+			log.Println("warning: ignoring table of contents")
+		case elem.SectionBreak != nil:
+			dc.flushCodeBlock(out)
+			log.Println("warning: ignoring section break")
+		case elem.Paragraph != nil:
+			err := dc.processParagraph(out, elem.Paragraph)
+			if err != nil {
+				return err
+			}
+		default:
+			log.Println("warning: encountered a body element of unknown type")
+		}
+	}
+
+	// flush any remaining code block
+	dc.flushCodeBlock(out)
+
+	return nil
+}
+
+// flushCodeBlock writes any lines stored in dc.codeblock to a markdown
+// code block, or if there are no stored lines then it does nothing
+func (dc *docConverter) flushCodeBlock(out *bytes.Buffer) {
+	if dc.codeBlock.Len() == 0 {
+		return
+	}
+
+	fmt.Fprintln(out, "```")
+	dc.codeBlock.WriteTo(out)
+	fmt.Fprintln(out, "```")
+	fmt.Fprintln(out)
+	dc.codeBlock.Reset()
+}
+
+func (dc *docConverter) processParagraph(out *bytes.Buffer, p *docs.Paragraph) error {
+	// deal with code blocks
+	isCode := p.ParagraphStyle.NamedStyleType == "NORMAL_TEXT" && p.Bullet == nil
+	if isCode {
+		for _, el := range p.Elements {
+			if el.TextRun == nil {
+				isCode = false
+				break
+			}
+			if !isMonospace(el.TextRun.TextStyle.WeightedFontFamily) {
+				isCode = false
+				break
+			}
+		}
+	}
+
+	if isCode {
+		for _, el := range p.Elements {
+			fmt.Fprint(&dc.codeBlock, el.TextRun.Content)
+		}
+		return nil
+	}
+
+	// if not a code block then flush any buffered code block
+	dc.flushCodeBlock(out)
+
+	// print the heading prefix
+	var isHeading bool
+	switch p.ParagraphStyle.NamedStyleType {
+	case "TITLE":
+		isHeading = true
+		fmt.Fprintf(out, "# ")
+	case "HEADING_1":
+		isHeading = true
+		fmt.Fprintf(out, "# ")
+	case "HEADING_2":
+		isHeading = true
+		fmt.Fprintf(out, "## ")
+	case "HEADING_3":
+		isHeading = true
+		fmt.Fprintf(out, "### ")
+	case "HEADING_4":
+		isHeading = true
+		fmt.Fprintf(out, "#### ")
+	case "HEADING_5":
+		isHeading = true
+		fmt.Fprintf(out, "##### ")
+	case "HEADING_6":
+		isHeading = true
+		fmt.Fprintf(out, "###### ")
+	}
+
+	// deal with bullets
+	if p.Bullet != nil {
+		if isHeading {
+			fmt.Println("found a heading that is part of a bulletted list, ignoring the bullet")
+		} else {
+			list := dc.doc.Lists[p.Bullet.ListId]
+			level := list.ListProperties.NestingLevels[p.Bullet.NestingLevel]
+
+			var i int64
+			for i = 0; i < p.Bullet.NestingLevel; i++ {
+				fmt.Fprintf(out, "  ")
+			}
+
+			// if there is no fixed glyph symbol then this is an ordered list
+			if level.GlyphSymbol == "" {
+				fmt.Fprintf(out, "1. ")
+			} else {
+				fmt.Fprintf(out, "* ")
+			}
+		}
+	}
+
+	// print each text run in the paragraph
+	for _, el := range p.Elements {
+		switch {
+		case el.ColumnBreak != nil:
+			log.Println("warning: ignoring column break")
+		case el.Equation != nil:
+			// TODO: implement
+			log.Println("warning: ignoring equation")
+		case el.FootnoteReference != nil:
+			fmt.Fprintf(out, "[^%s]", el.FootnoteReference.FootnoteId)
+		case el.AutoText != nil:
+			log.Println("warning: ignoring auto text")
+		case el.HorizontalRule != nil:
+			fmt.Fprintf(out, "\n---\n")
+		case el.InlineObjectElement != nil:
+			err := dc.processInlineObject(out, el.InlineObjectElement)
+			if err != nil {
+				return err
+			}
+		case el.PageBreak != nil:
+			log.Println("  page break")
+		case el.TextRun != nil:
+			err := dc.processTextRun(out, el.TextRun)
+			if err != nil {
+				return err
+			}
+		default:
+			log.Println("warning: encountered a paragraph element of unknown type")
+		}
+	}
+
+	// write two newlines at the end of each paragraph
+	fmt.Fprint(out, "\n\n")
+	return nil
+}
+
+func (dc *docConverter) processInlineObject(out *bytes.Buffer, objRef *docs.InlineObjectElement) error {
+	id := objRef.InlineObjectId
+	obj, ok := dc.doc.InlineObjects[id]
+	if !ok {
+		fmt.Println("warning: could not find inline object for id", id)
+		return nil
+	}
+
+	emb := obj.InlineObjectProperties.EmbeddedObject
+	switch {
+	case emb.ImageProperties != nil || emb.EmbeddedDrawingProperties != nil:
+		if dc.imageIndex >= len(dc.imageURLs) {
+			return fmt.Errorf("found %d images in zip but too many objects in the doc", len(dc.imageURLs))
+		}
+		fmt.Fprintf(out, "![%s](%s)", emb.Title, dc.imageURLs[dc.imageIndex])
+		dc.imageIndex++
+	case emb.LinkedContentReference != nil:
+		log.Println("warning: ignoring linked spreadsheet / chart")
+	}
+
+	return nil
+}
+
+func (dc *docConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) error {
+	// unfortunately markdown only supports at most one of italic, bold,
+	// or strikethrough for any one bit of text
+	var surround string
+	if t.TextStyle.Italic {
+		surround = "*"
+	}
+	if t.TextStyle.Bold {
+		surround = "**"
+	}
+	if t.TextStyle.Strikethrough {
+		surround = "-"
+	}
+	if isMonospace(t.TextStyle.WeightedFontFamily) {
+		surround = "`"
+	}
+
+	// the following features are not supported at all in markdown
+	if t.TextStyle.Underline {
+		log.Printf("warning: ignoring underlined text (%q)", t.Content)
+	}
+	if t.TextStyle.SmallCaps {
+		log.Printf("warning: ignoring smallcaps (%q)", t.Content)
+	}
+	if t.TextStyle.BackgroundColor != nil {
+		log.Printf("warning: ignoring text with background color (%q)", t.Content)
+	}
+	if t.TextStyle.ForegroundColor != nil {
+		log.Printf("warning: ignoring text with foreground color (%q)", t.Content)
+	}
+	switch t.TextStyle.BaselineOffset {
+	case "SUBSCRIPT":
+		log.Println("warning: ignoring subscript")
+	case "SUPERSCRIPT":
+		log.Println("warning: ignoring superscript")
+	}
+
+	// replace unicode quote characters with ordinary quote characters
+	content := t.Content
+	content = strings.Replace(content, `“`, `"`, -1)
+	content = strings.Replace(content, `”`, `"`, -1)
+
+	// in markdown we must apply styling separately to each line
+	link := t.TextStyle.Link
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+
+		if link != nil {
+			fmt.Fprint(out, "[")
+		}
+
+		fmt.Fprintf(out, surround)
+		fmt.Fprintf(out, line)
+		fmt.Fprintf(out, surround)
+
+		if link != nil {
+			fmt.Fprintf(out, "](%s)", link.Url)
+		}
+
+		if i+1 < len(lines) {
+			fmt.Fprintf(out, "\n")
 		}
 	}
 
