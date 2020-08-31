@@ -1,16 +1,19 @@
 package main
 
 // TODO:
-//   deal with emphasizing text runs that end with whitespace
 //   deal with tables
 //   deal with equations
-//   detect code blocks
+//   deal with first-line and hanging indents
+//   do not print warning about foreground color / underlined text for links
+//   do not print warning about foreground/background color when it is black/white
+//   deal with block quotes
 
 import (
 	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -19,6 +22,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/docs/v1"
@@ -41,6 +45,41 @@ func isMonospace(font *docs.WeightedFontFamily) bool {
 		return true
 	}
 	return false
+}
+
+// splitSpace splits a string into leading whitespace, trailing
+// whitespace, and everything inbetween
+func splitSpace(s string) (left, middle, right string) {
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			right += string(r)
+		} else if len(middle) == 0 {
+			left = right
+			right = ""
+			middle += string(r)
+		} else {
+			middle += right + string(r)
+			right = ""
+		}
+	}
+	return
+}
+
+func hexInt(n int) string {
+	var b bytes.Buffer
+	binary.Write(&b, binary.LittleEndian, n)
+	return hex.EncodeToString(b.Bytes())
+}
+
+func formatColor(c *docs.OptionalColor) string {
+	// Google docs supports fully-opaque colors, plus a special case
+	// for the fully-transparent color. There is no support for
+	// partial transparency
+	if c.Color == nil {
+		return "transparent"
+	}
+	rgb := c.Color.RgbColor
+	return fmt.Sprintf("rgb(%.2f %.2f %.2f)", rgb.Red, rgb.Green, rgb.Blue)
 }
 
 type pullGoogleDocArgs struct {
@@ -215,7 +254,8 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 	}
 
 	// drop sequences of more than 3 newlines
-	var consecutiveNewlines int
+	var newlines int
+	var whitespace string
 	var final strings.Builder
 	final.Grow(markdown.Len())
 	for {
@@ -228,13 +268,18 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 		}
 
 		if r == '\n' {
-			consecutiveNewlines++
+			if newlines < 2 {
+				final.WriteRune(r)
+			}
+			newlines++
+			whitespace = "" // drop trailing whitespace
+		} else if unicode.IsSpace(r) {
+			whitespace += string(r)
 		} else {
-			consecutiveNewlines = 0
-		}
-
-		if consecutiveNewlines <= 2 {
+			final.WriteString(whitespace)
 			final.WriteRune(r)
+			newlines = 0
+			whitespace = ""
 		}
 	}
 
@@ -396,7 +441,7 @@ func (dc *docConverter) processParagraph(out *bytes.Buffer, p *docs.Paragraph) e
 				return err
 			}
 		case el.PageBreak != nil:
-			log.Println("  page break")
+			log.Println("warning: ignoring page break")
 		case el.TextRun != nil:
 			err := dc.processTextRun(out, el.TextRun)
 			if err != nil {
@@ -460,10 +505,10 @@ func (dc *docConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) error
 		log.Printf("warning: ignoring smallcaps (%q)", t.Content)
 	}
 	if t.TextStyle.BackgroundColor != nil {
-		log.Printf("warning: ignoring text with background color (%q)", t.Content)
+		log.Printf("warning: ignoring background color (%q)", t.Content)
 	}
 	if t.TextStyle.ForegroundColor != nil {
-		log.Printf("warning: ignoring text with foreground color (%q)", t.Content)
+		log.Printf("warning: ignoring foreground color (%q)", t.Content)
 	}
 	switch t.TextStyle.BaselineOffset {
 	case "SUBSCRIPT":
@@ -489,9 +534,17 @@ func (dc *docConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) error
 			fmt.Fprint(out, "[")
 		}
 
-		fmt.Fprintf(out, surround)
-		fmt.Fprintf(out, line)
-		fmt.Fprintf(out, surround)
+		// in markdown, emphasis markers cannot be
+		// separated from the content by whitespace
+		leadingSpace, middle, trailingSpace := splitSpace(line)
+
+		fmt.Fprint(out, leadingSpace)
+		if len(middle) > 0 {
+			fmt.Fprint(out, surround)
+			fmt.Fprint(out, middle)
+			fmt.Fprint(out, surround)
+		}
+		fmt.Fprint(out, trailingSpace)
 
 		if link != nil {
 			fmt.Fprintf(out, "](%s)", link.Url)
