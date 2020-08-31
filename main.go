@@ -8,8 +8,12 @@ import (
 	"github.com/alexflint/go-arg"
 )
 
-type pullArgs struct {
-	GoogleDoc *pullGoogleDocArgs `arg:"subcommand"`
+type fetchArgs struct {
+	GoogleDoc *fetchGoogleDocArgs `arg:"subcommand"`
+}
+
+type exportArgs struct {
+	Markdown *exportMarkdownArgs `arg:"subcommand"`
 }
 
 type pushArgs struct {
@@ -18,8 +22,9 @@ type pushArgs struct {
 }
 
 type args struct {
-	Pull *pullArgs `arg:"subcommand"`
-	Push *pushArgs `arg:"subcommand"`
+	Fetch  *fetchArgs  `arg:"subcommand"`
+	Export *exportArgs `arg:"subcommand"`
+	Push   *pushArgs   `arg:"subcommand"`
 }
 
 func main() {
@@ -31,12 +36,18 @@ func main() {
 	var err error
 
 	switch {
-	case args.Pull != nil:
+	case args.Fetch != nil:
 		switch {
-		case args.Pull.GoogleDoc != nil:
-			err = pullGoogleDoc(ctx, args.Pull.GoogleDoc)
+		case args.Fetch.GoogleDoc != nil:
+			err = fetchGoogleDoc(ctx, args.Fetch.GoogleDoc)
 		default:
 			p.Fail("pull requires a subcommand")
+		}
+
+	case args.Export != nil:
+		switch {
+		case args.Export.Markdown != nil:
+			err = exportMarkdown(ctx, args.Export.Markdown)
 		}
 
 	case args.Push != nil:

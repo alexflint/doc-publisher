@@ -1,19 +1,12 @@
 package main
 
-// TODO:
-//   deal with tables
-//   deal with equations
-//   deal with first-line and hanging indents
-//   do not print warning about foreground color / underlined text for links
-//   do not print warning about foreground/background color when it is black/white
-//   deal with block quotes
-
 import (
-	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/gob"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -26,9 +19,12 @@ import (
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/docs/v1"
-	"google.golang.org/api/drive/v3"
-	"google.golang.org/api/option"
 )
+
+type exportMarkdownArgs struct {
+	Input  string `arg:"positional"`
+	Output string `arg:"-o,--output"`
+}
 
 // determine whether a font is monospace (for detecting code blocks)
 func isMonospace(font *docs.WeightedFontFamily) bool {
@@ -82,42 +78,35 @@ func formatColor(c *docs.OptionalColor) string {
 	return fmt.Sprintf("rgb(%.2f %.2f %.2f)", rgb.Red, rgb.Green, rgb.Blue)
 }
 
-type pullGoogleDocArgs struct {
-	Document string
-	SaveZip  string
-	Output   string `arg:"-o,--output"`
-}
+// regular expression for finding image references in HTML-exported google docs
+var imageRegexp = regexp.MustCompile(`images\/image\d+\.png`)
 
-func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
-	const tokFile = ".cache/google-pull-token.json"
-	googleToken, err := GoogleAuth(ctx, tokFile,
-		"https://www.googleapis.com/auth/documents.readonly",
-		"https://www.googleapis.com/auth/drive.readonly")
-
-	// create the drive client
-	driveClient, err := drive.NewService(ctx, option.WithTokenSource(googleToken)) // option.WithHTTPClient(googleClient))
+func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
+	f, err := os.Open(args.Input)
 	if err != nil {
-		return fmt.Errorf("error creating drive client: %w", err)
+		return fmt.Errorf("error opening input file: %w", err)
+	}
+	defer f.Close()
+
+	rd, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("error initializing gzip reader: %w", err)
 	}
 
-	// export the document as a zip arcive
-	resp, err := driveClient.Files.Export(args.Document, "application/zip").Download()
+	var d googleDoc
+	err = gob.NewDecoder(rd).Decode(&d)
 	if err != nil {
-		return fmt.Errorf("error in file download api call: %w", err)
+		return fmt.Errorf("error decoding input: %w", err)
+	}
+	if d.Doc == nil {
+		return fmt.Errorf("document was nil in decoded structure")
 	}
 
-	zipbuf, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("error reading exported doc from request: %w", err)
-	}
-
-	// save to disk if requested
-	if args.SaveZip != "" {
-		err := ioutil.WriteFile(args.SaveZip, zipbuf, 0666)
-		if err != nil {
-			return fmt.Errorf("error writing to %s: %w", args.SaveZip, err)
-		}
-		fmt.Printf("wrote %d bytes to %s\n", len(zipbuf), args.SaveZip)
+	// look at the order in which the images appear in the HTML
+	var imageOrder []string
+	matches := imageRegexp.FindAll(d.HTML, -1)
+	for _, m := range matches {
+		imageOrder = append(imageOrder, string(m))
 	}
 
 	// create a cloud storage client
@@ -127,116 +116,52 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 	}
 
 	imageBucket := storageClient.Bucket("doc-publisher-images")
-
-	// open the zip file
-	ziprd, err := zip.NewReader(bytes.NewReader(zipbuf), int64(len(zipbuf)))
-	if err != nil {
-		return fmt.Errorf("error decoding zip archive: %w", err)
-	}
-
-	// open the image URL cache
-	err = os.MkdirAll(".cache/image-urls", os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("error creating image URL cache dir: %w", err)
-	}
-
-	var foundHTML bool
-	var imageOrder []string
 	imageURLByFilename := make(map[string]string)
-	for _, f := range ziprd.File {
-		if strings.HasSuffix(f.Name, ".html") {
-			foundHTML = true
-			r, err := f.Open()
-			if err != nil {
-				return fmt.Errorf("error opening %s from zip archive: %w", f.Name, err)
-			}
 
-			buf, err := ioutil.ReadAll(r)
-			if err != nil {
-				return fmt.Errorf("error reading %s from zip archive: %w", f.Name, err)
-			}
+	// upload each image to cloud storage
+	for _, image := range d.Images {
+		// use a hash of the image content as the filename
+		hash := sha256.Sum256(image.Content)
+		hexhash := hex.EncodeToString(hash[:8]) // we just take the first 8 bytes for brevity
+		name := hexhash + ".jpg"
+		obj := imageBucket.Object(name)
 
-			re, err := regexp.Compile(`images\/image\d+\.png`)
-			if err != nil {
-				return fmt.Errorf("error compiling regexp: %w", err)
-			}
+		wr := obj.NewWriter(ctx)
+		defer wr.Close()
 
-			matches := re.FindAll(buf, -1)
-			for _, m := range matches {
-				imageOrder = append(imageOrder, string(m))
-			}
+		_, err = wr.Write(image.Content)
+		if err != nil {
+			return fmt.Errorf("error writing %s to cloud storage: %w", image.Filename, err)
 		}
-		if strings.HasPrefix(f.Name, "images/image") {
-			// read the image from the zip archive
-			r, err := f.Open()
-			if err != nil {
-				return fmt.Errorf("error opening %s from zip archive: %w", f.Name, err)
-			}
+		wr.Close()
 
-			buf, err := ioutil.ReadAll(r)
-			if err != nil {
-				return fmt.Errorf("error reading %s from zip archive: %w", f.Name, err)
-			}
-
-			// write the image to cloud storage
-			hash := sha256.Sum256(buf)
-			hexhash := hex.EncodeToString(hash[:8]) // we just take the first 8 bytes for brevity
-			name := hexhash + ".jpg"
-			obj := imageBucket.Object(name)
-
-			wr := obj.NewWriter(ctx)
-			defer wr.Close()
-
-			_, err = wr.Write(buf)
-			if err != nil {
-				return fmt.Errorf("error writing %s to cloud storage: %w", f.Name, err)
-			}
-			wr.Close()
-
-			// store the URL in the map
-			imgURL := fmt.Sprintf("https://storage.googleapis.com/%s/%s", obj.BucketName(), obj.ObjectName())
-			imageURLByFilename[f.Name] = imgURL
-			fmt.Printf("%s => %s\n", f.Name, imgURL)
-		}
-	}
-
-	if !foundHTML {
-		return fmt.Errorf("no html file found in downloaded zip archive")
+		// store the URL in the map
+		imgURL := fmt.Sprintf("https://storage.googleapis.com/%s/%s", obj.BucketName(), obj.ObjectName())
+		imageURLByFilename[image.Filename] = imgURL
+		fmt.Printf("%s => %s\n", image.Filename, imgURL)
 	}
 
 	fmt.Println(imageOrder)
 
-	// create the docs client
-	docsClient, err := docs.NewService(ctx, option.WithTokenSource(googleToken))
-	if err != nil {
-		return fmt.Errorf("error creating docs client: %w", err)
-	}
-
-	// fetch the document
-	doc, err := docsClient.Documents.Get(args.Document).Do()
-	if err != nil {
-		return fmt.Errorf("error retrieving document: %w", err)
-	}
-
 	// convert the document to markdown
-	converter := docConverter{
-		doc: doc,
+	conv := markdownConverter{
+		doc: d.Doc,
 	}
 	for _, imageFilename := range imageOrder {
-		converter.imageURLs = append(converter.imageURLs, imageURLByFilename[imageFilename])
+		conv.imageURLs = append(conv.imageURLs, imageURLByFilename[imageFilename])
 	}
 
 	// process the main body content
 	var markdown bytes.Buffer
-	err = converter.process(&markdown, doc.Body.Content)
+	err = conv.process(&markdown, d.Doc.Body.Content)
 	if err != nil {
 		return fmt.Errorf("error converting document body to markdown: %w", err)
 	}
 
 	// process each footnote
-	for _, footnote := range doc.Footnotes {
+	for _, footnote := range d.Doc.Footnotes {
 		var footnoteMarkdown bytes.Buffer
-		err = converter.process(&footnoteMarkdown, footnote.Content)
+		err = conv.process(&footnoteMarkdown, footnote.Content)
 		if err != nil {
 			return fmt.Errorf("error converting footnote %s content to markdown: %w", footnote.FootnoteId, err)
 		}
@@ -295,14 +220,14 @@ func pullGoogleDoc(ctx context.Context, args *pullGoogleDocArgs) error {
 	return nil
 }
 
-type docConverter struct {
+type markdownConverter struct {
 	doc        *docs.Document
 	imageURLs  []string
 	imageIndex int
 	codeBlock  bytes.Buffer // text identified as lines of code
 }
 
-func (dc *docConverter) process(out *bytes.Buffer, content []*docs.StructuralElement) error {
+func (dc *markdownConverter) process(out *bytes.Buffer, content []*docs.StructuralElement) error {
 	// walk the document
 	for _, elem := range content {
 		switch {
@@ -335,7 +260,7 @@ func (dc *docConverter) process(out *bytes.Buffer, content []*docs.StructuralEle
 
 // flushCodeBlock writes any lines stored in dc.codeblock to a markdown
 // code block, or if there are no stored lines then it does nothing
-func (dc *docConverter) flushCodeBlock(out *bytes.Buffer) {
+func (dc *markdownConverter) flushCodeBlock(out *bytes.Buffer) {
 	if dc.codeBlock.Len() == 0 {
 		return
 	}
@@ -347,7 +272,7 @@ func (dc *docConverter) flushCodeBlock(out *bytes.Buffer) {
 	dc.codeBlock.Reset()
 }
 
-func (dc *docConverter) processParagraph(out *bytes.Buffer, p *docs.Paragraph) error {
+func (dc *markdownConverter) processParagraph(out *bytes.Buffer, p *docs.Paragraph) error {
 	// deal with code blocks
 	isCode := p.ParagraphStyle.NamedStyleType == "NORMAL_TEXT" && p.Bullet == nil
 	if isCode {
@@ -457,7 +382,7 @@ func (dc *docConverter) processParagraph(out *bytes.Buffer, p *docs.Paragraph) e
 	return nil
 }
 
-func (dc *docConverter) processInlineObject(out *bytes.Buffer, objRef *docs.InlineObjectElement) error {
+func (dc *markdownConverter) processInlineObject(out *bytes.Buffer, objRef *docs.InlineObjectElement) error {
 	id := objRef.InlineObjectId
 	obj, ok := dc.doc.InlineObjects[id]
 	if !ok {
@@ -480,7 +405,7 @@ func (dc *docConverter) processInlineObject(out *bytes.Buffer, objRef *docs.Inli
 	return nil
 }
 
-func (dc *docConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) error {
+func (dc *markdownConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) error {
 	// unfortunately markdown only supports at most one of italic, bold,
 	// or strikethrough for any one bit of text
 	var surround string
