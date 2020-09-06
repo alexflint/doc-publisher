@@ -14,9 +14,8 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-oauth_credentials.json
-token.json
+/oauth_credentials.json
+/doc-publisher
 /out/
 /scratch/
-/.image-url-cache/
-/doc-publisher
+/.cache/
