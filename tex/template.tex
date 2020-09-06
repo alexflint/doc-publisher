@@ -30,7 +30,7 @@
 \fi
 \usepackage{graphicx}
 \usepackage{csquotes}
-\usepackage[backend=biber,sorting=none]{biblatex}
+%\usepackage[backend=biber,sorting=none]{biblatex}
 \usepackage{mleftright}
 \mleftright
 
@@ -71,29 +71,29 @@
 \setaftersecskip{\baselineskip}
 
 % From https://stats.meta.stackexchange.com/questions/1419/latex-macros-for-expectation-variance-and-covariance
-\newcommand{\Expect}{{\rm I\kern-.3em E}}
+\newcommand{\Expect}{ {\rm I\kern-.3em E} }
 
 \newcommand{\argmax}{\operatornamewithlimits{arg\,max}}
 
-\DeclareFieldFormat{url}{%
-  \iffieldundef{doi}{%
-    \mkbibacro{URL}\addcolon\space\url{#1}%
-  }{%
-  }%
-}
+%\DeclareFieldFormat{url}{%
+%  \iffieldundef{doi}{%
+%    \mkbibacro{URL}\addcolon\space\url{#1}%
+%  }{%
+%  }%
+%}
 
-\DeclareFieldFormat{urldate}{%
-  \iffieldundef{doi}{%
-    \mkbibparens{\bibstring{urlseen}\space#1}%
-  }{%
-  }%
-}
+%\DeclareFieldFormat{urldate}{%
+%  \iffieldundef{doi}{%
+%    \mkbibparens{\bibstring{urlseen}\space#1}%
+%  }{%
+%  }%
+%}
 
 % Example equations
 \newcommand{\squash}{q}
 \newcommand{\catchup}{\min\left(\iota,\left(\frac{\max\left(I_{t}\right)}{I_{i,t}}\right)^{\kappa}\right)}
 
-\addbibresource{library.bib}
+%\addbibresource{ {{.Bibliography}} }
 
 \begin{document}
 
@@ -119,7 +119,7 @@
 {{.Content}}
 
 % Bibliography
-\newpage
-\printbibliography
+%\newpage
+%\printbibliography
 
 \end{document}

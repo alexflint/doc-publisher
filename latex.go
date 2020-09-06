@@ -13,9 +13,10 @@ import (
 )
 
 type exportLatexArgs struct {
-	Input    string `arg:"positional"`
-	Output   string `arg:"-o,--output"`
-	Template string
+	Input        string `arg:"positional"`
+	Output       string `arg:"-o,--output"`
+	Bibliography string
+	Template     string
 }
 
 func exportLatex(ctx context.Context, args *exportLatexArgs) error {
@@ -70,24 +71,34 @@ func exportLatex(ctx context.Context, args *exportLatexArgs) error {
 		return fmt.Errorf("error parsing latex template: %w", err)
 	}
 
+	// pick a bibliography path
+	bibPath := args.Bibliography
+	if bibPath == "" {
+		bibPath = "library.bib"
+	}
+
+	// execute the latex template
 	type inputs struct {
-		Title    string
-		Subtitle string
-		Author   string
-		Content  string
+		Title        string
+		Subtitle     string
+		Author       string
+		Content      string
+		Bibliography string
 	}
 
 	var out bytes.Buffer
 	err = tpl.Execute(&out, inputs{
-		Title:    "the title",
-		Subtitle: "the subtitle",
-		Author:   "Kōshin",
-		Content:  "\\chapter{Foo}",
+		Title:        "the title",
+		Subtitle:     "the subtitle",
+		Author:       "Kōshin",
+		Content:      `\chapter{Foo}`,
+		Bibliography: args.Bibliography,
 	})
 	if err != nil {
 		return fmt.Errorf("error executing latex template: %w", err)
 	}
 
+	// write to output file or stdout
 	if args.Output == "" {
 		fmt.Println(out.String())
 	} else {
