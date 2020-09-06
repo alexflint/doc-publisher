@@ -3,82 +3,23 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
-	"regexp"
 	"strings"
-	"unicode"
+	"text/template"
 
-	"cloud.google.com/go/storage"
 	"google.golang.org/api/docs/v1"
 )
 
-type exportMarkdownArgs struct {
-	Input  string `arg:"positional"`
-	Output string `arg:"-o,--output"`
+type exportLatexArgs struct {
+	Input    string `arg:"positional"`
+	Output   string `arg:"-o,--output"`
+	Template string
 }
 
-// determine whether a font is monospace (for detecting code blocks)
-func isMonospace(font *docs.WeightedFontFamily) bool {
-	if font == nil {
-		return false
-	}
-
-	switch strings.ToLower(font.FontFamily) {
-	case "courier new":
-		return true
-	case "consolas":
-		return true
-	case "roboto mono":
-		return true
-	}
-	return false
-}
-
-// splitSpace splits a string into leading whitespace, trailing
-// whitespace, and everything inbetween
-func splitSpace(s string) (left, middle, right string) {
-	for _, r := range s {
-		if unicode.IsSpace(r) {
-			right += string(r)
-		} else if len(middle) == 0 {
-			left = right
-			right = ""
-			middle += string(r)
-		} else {
-			middle += right + string(r)
-			right = ""
-		}
-	}
-	return
-}
-
-func hexInt(n int) string {
-	var b bytes.Buffer
-	binary.Write(&b, binary.LittleEndian, n)
-	return hex.EncodeToString(b.Bytes())
-}
-
-func formatColor(c *docs.OptionalColor) string {
-	// Google docs supports fully-opaque colors, plus a special case
-	// for the fully-transparent color. There is no support for
-	// partial transparency
-	if c.Color == nil {
-		return "transparent"
-	}
-	rgb := c.Color.RgbColor
-	return fmt.Sprintf("rgb(%.2f %.2f %.2f)", rgb.Red, rgb.Green, rgb.Blue)
-}
-
-// regular expression for finding image references in HTML-exported google docs
-var imageRegexp = regexp.MustCompile(`images\/image\d+\.png`)
-
-func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
+func exportLatex(ctx context.Context, args *exportLatexArgs) error {
+	// load the input document
 	d, err := ReadGoogleDoc(args.Input)
 	if err != nil {
 		return err
@@ -91,109 +32,66 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 		imageOrder = append(imageOrder, string(m))
 	}
 
-	// create a cloud storage client
-	storageClient, err := storage.NewClient(ctx)
-	if err != nil {
-		return fmt.Errorf("error creating storage client: %w", err)
-	}
-
-	imageBucket := storageClient.Bucket("doc-publisher-images")
-	imageURLByFilename := make(map[string]string)
-
-	// upload each image to cloud storage
-	for _, image := range d.Images {
-		// use a hash of the image content as the filename
-		hash := sha256.Sum256(image.Content)
-		hexhash := hex.EncodeToString(hash[:8]) // we just take the first 8 bytes for brevity
-		name := hexhash + ".jpg"
-		obj := imageBucket.Object(name)
-
-		wr := obj.NewWriter(ctx)
-		defer wr.Close()
-
-		_, err = wr.Write(image.Content)
-		if err != nil {
-			return fmt.Errorf("error writing %s to cloud storage: %w", image.Filename, err)
-		}
-		wr.Close()
-
-		// store the URL in the map
-		imgURL := fmt.Sprintf("https://storage.googleapis.com/%s/%s", obj.BucketName(), obj.ObjectName())
-		imageURLByFilename[image.Filename] = imgURL
-		fmt.Printf("%s => %s\n", image.Filename, imgURL)
-	}
-
-	fmt.Println(imageOrder)
-
-	// convert the document to markdown
-	conv := markdownConverter{
+	// convert the document to latex
+	conv := latexConverter{
 		doc: d.Doc,
-	}
-	for _, imageFilename := range imageOrder {
-		conv.imageURLs = append(conv.imageURLs, imageURLByFilename[imageFilename])
 	}
 
 	// process the main body content
-	var markdown bytes.Buffer
-	err = conv.process(&markdown, d.Doc.Body.Content)
+	var tex bytes.Buffer
+	err = conv.process(&tex, d.Doc.Body.Content)
 	if err != nil {
-		return fmt.Errorf("error converting document body to markdown: %w", err)
+		return fmt.Errorf("error converting document body to latex: %w", err)
 	}
 
 	// process each footnote
-	for _, footnote := range d.Doc.Footnotes {
-		var footnoteMarkdown bytes.Buffer
-		err = conv.process(&footnoteMarkdown, footnote.Content)
-		if err != nil {
-			return fmt.Errorf("error converting footnote %s content to markdown: %w", footnote.FootnoteId, err)
-		}
+	// for _, footnote := range d.Doc.Footnotes {
+	// 	var footnoteMarkdown bytes.Buffer
+	// 	err = conv.process(&footnoteMarkdown, footnote.Content)
+	// 	if err != nil {
+	// 		return fmt.Errorf("error converting footnote %s content to markdown: %w", footnote.FootnoteId, err)
+	// 	}
 
-		fmt.Fprintf(&markdown, "[^%s]: ", footnote.FootnoteId)
-		for i, line := range strings.Split(footnoteMarkdown.String(), "\n") {
-			if i > 0 {
-				fmt.Fprint(&markdown, "    ") // multi-line footnotes in markdown must be indented
-			}
+	// 	fmt.Fprintf(&markdown, "[^%s]: ", footnote.FootnoteId)
+	// 	for i, line := range strings.Split(footnoteMarkdown.String(), "\n") {
+	// 		if i > 0 {
+	// 			fmt.Fprint(&markdown, "    ") // multi-line footnotes in markdown must be indented
+	// 		}
 
-			fmt.Fprintln(&markdown, line)
-		}
+	// 		fmt.Fprintln(&markdown, line)
+	// 	}
 
-		fmt.Fprint(&markdown, "\n") // make sure there is an empty line between each footnote
+	// 	fmt.Fprint(&markdown, "\n") // make sure there is an empty line between each footnote
+	// }
+
+	// load the tex template
+	tpl, err := template.ParseFiles("tex/template.tex")
+	if err != nil {
+		return fmt.Errorf("error parsing latex template: %w", err)
 	}
 
-	// drop sequences of more than 3 newlines
-	var newlines int
-	var whitespace string
-	var final strings.Builder
-	final.Grow(markdown.Len())
-	for {
-		r, _, err := markdown.ReadRune()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("error reading runes from markdown buffer: %w", err)
-		}
+	type inputs struct {
+		Title    string
+		Subtitle string
+		Author   string
+		Content  string
+	}
 
-		if r == '\n' {
-			if newlines < 2 {
-				final.WriteRune(r)
-			}
-			newlines++
-			whitespace = "" // drop trailing whitespace
-		} else if unicode.IsSpace(r) {
-			whitespace += string(r)
-		} else {
-			final.WriteString(whitespace)
-			final.WriteRune(r)
-			newlines = 0
-			whitespace = ""
-		}
+	var out bytes.Buffer
+	err = tpl.Execute(&out, inputs{
+		Title:    "the title",
+		Subtitle: "the subtitle",
+		Author:   "Kōshin",
+		Content:  "\\chapter{Foo}",
+	})
+	if err != nil {
+		return fmt.Errorf("error executing latex template: %w", err)
 	}
 
 	if args.Output == "" {
-		fmt.Println(final.String())
+		fmt.Println(out.String())
 	} else {
-		err = ioutil.WriteFile(args.Output, []byte(final.String()), 0666)
+		err = ioutil.WriteFile(args.Output, out.Bytes(), 0666)
 		if err != nil {
 			return fmt.Errorf("error writing to %s: %w", args.Output, err)
 		}
@@ -202,14 +100,14 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 	return nil
 }
 
-type markdownConverter struct {
+type latexConverter struct {
 	doc        *docs.Document
-	imageURLs  []string
+	imagePaths []string
 	imageIndex int
 	codeBlock  bytes.Buffer // text identified as lines of code
 }
 
-func (dc *markdownConverter) process(out *bytes.Buffer, content []*docs.StructuralElement) error {
+func (dc *latexConverter) process(out *bytes.Buffer, content []*docs.StructuralElement) error {
 	// walk the document
 	for _, elem := range content {
 		switch {
@@ -240,9 +138,9 @@ func (dc *markdownConverter) process(out *bytes.Buffer, content []*docs.Structur
 	return nil
 }
 
-// flushCodeBlock writes any lines stored in dc.codeblock to a markdown
-// code block, or if there are no stored lines then it does nothing
-func (dc *markdownConverter) flushCodeBlock(out *bytes.Buffer) {
+// flushCodeBlock writes any lines stored in dc.codeblock, or if there
+// are no stored lines then it does nothing
+func (dc *latexConverter) flushCodeBlock(out *bytes.Buffer) {
 	if dc.codeBlock.Len() == 0 {
 		return
 	}
@@ -254,7 +152,7 @@ func (dc *markdownConverter) flushCodeBlock(out *bytes.Buffer) {
 	dc.codeBlock.Reset()
 }
 
-func (dc *markdownConverter) processParagraph(out *bytes.Buffer, p *docs.Paragraph) error {
+func (dc *latexConverter) processParagraph(out *bytes.Buffer, p *docs.Paragraph) error {
 	// deal with code blocks
 	isCode := p.ParagraphStyle.NamedStyleType == "NORMAL_TEXT" && p.Bullet == nil
 	if isCode {
@@ -364,30 +262,30 @@ func (dc *markdownConverter) processParagraph(out *bytes.Buffer, p *docs.Paragra
 	return nil
 }
 
-func (dc *markdownConverter) processInlineObject(out *bytes.Buffer, objRef *docs.InlineObjectElement) error {
-	id := objRef.InlineObjectId
-	obj, ok := dc.doc.InlineObjects[id]
-	if !ok {
-		fmt.Println("warning: could not find inline object for id", id)
-		return nil
-	}
+func (dc *latexConverter) processInlineObject(out *bytes.Buffer, objRef *docs.InlineObjectElement) error {
+	// id := objRef.InlineObjectId
+	// obj, ok := dc.doc.InlineObjects[id]
+	// if !ok {
+	// 	fmt.Println("warning: could not find inline object for id", id)
+	// 	return nil
+	// }
 
-	emb := obj.InlineObjectProperties.EmbeddedObject
-	switch {
-	case emb.ImageProperties != nil || emb.EmbeddedDrawingProperties != nil:
-		if dc.imageIndex >= len(dc.imageURLs) {
-			return fmt.Errorf("found %d images in zip but too many objects in the doc", len(dc.imageURLs))
-		}
-		fmt.Fprintf(out, "![%s](%s)", emb.Title, dc.imageURLs[dc.imageIndex])
-		dc.imageIndex++
-	case emb.LinkedContentReference != nil:
-		log.Println("warning: ignoring linked spreadsheet / chart")
-	}
+	// emb := obj.InlineObjectProperties.EmbeddedObject
+	// switch {
+	// case emb.ImageProperties != nil || emb.EmbeddedDrawingProperties != nil:
+	// 	if dc.imageIndex >= len(dc.imageURLs) {
+	// 		return fmt.Errorf("found %d images in zip but too many objects in the doc", len(dc.imageURLs))
+	// 	}
+	// 	fmt.Fprintf(out, "![%s](%s)", emb.Title, dc.imageURLs[dc.imageIndex])
+	// 	dc.imageIndex++
+	// case emb.LinkedContentReference != nil:
+	// 	log.Println("warning: ignoring linked spreadsheet / chart")
+	// }
 
 	return nil
 }
 
-func (dc *markdownConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) error {
+func (dc *latexConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) error {
 	// unfortunately markdown only supports at most one of italic, bold,
 	// or strikethrough for any one bit of text
 	var surround string

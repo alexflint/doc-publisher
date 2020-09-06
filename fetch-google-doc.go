@@ -30,19 +30,6 @@ type fetchGoogleDocArgs struct {
 	Output   string `arg:"-o,--output"`
 }
 
-// googleDocImage represents an image in the HTML export of a google doc
-type googleDocImage struct {
-	Filename string
-	Content  []byte
-}
-
-// googleDoc represents a serialized .googledoc
-type googleDoc struct {
-	Doc    *docs.Document
-	HTML   []byte            // html export of the google doc
-	Images []*googleDocImage // images from the html-exported google doc
-}
-
 func fetchGoogleDoc(ctx context.Context, args *fetchGoogleDocArgs) error {
 	const tokFile = ".cache/google-pull-token.json"
 	googleToken, err := GoogleAuth(ctx, tokFile,

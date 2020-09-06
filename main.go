@@ -14,6 +14,7 @@ type fetchArgs struct {
 
 type exportArgs struct {
 	Markdown *exportMarkdownArgs `arg:"subcommand"`
+	Latex    *exportLatexArgs    `arg:"subcommand"`
 }
 
 type pushArgs struct {
@@ -48,6 +49,10 @@ func main() {
 		switch {
 		case args.Export.Markdown != nil:
 			err = exportMarkdown(ctx, args.Export.Markdown)
+		case args.Export.Latex != nil:
+			err = exportLatex(ctx, args.Export.Latex)
+		default:
+			p.Fail("export requires a subcommand")
 		}
 
 	case args.Push != nil:

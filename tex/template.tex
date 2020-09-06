@@ -70,17 +70,6 @@
 \newcommand\subsectionsecnumformat{\thesubsection\quad}
 \setaftersecskip{\baselineskip}
 
-%%% Title page
-\newcommand*{\titleTH}{\begingroup
-\center
-\vspace*{2\baselineskip}
-{\textcolor{darkgray}{\fontsize{29.87pt}{39.82pt}\selectfont Lorem Ipsum Dolor Sit Amet}}\\[\baselineskip]
-{\huge Suspendisse urna tellus, dictum vitae erat vel\footnote{The authors would like to thank X, Y, and Z for their comments and suggestions.}}\\[\baselineskip]
-\par
-\vspace*{2\baselineskip}
-{\Large Modeling Cooperation}\\
-\endgroup}
-
 % From https://stats.meta.stackexchange.com/questions/1419/latex-macros-for-expectation-variance-and-covariance
 \newcommand{\Expect}{{\rm I\kern-.3em E}}
 
@@ -108,7 +97,17 @@
 
 \begin{document}
 
-\titleTH
+%%% Title page
+\begingroup
+\center
+\vspace*{2\baselineskip}
+{\textcolor{darkgray}{\fontsize{29.87pt}{39.82pt}\selectfont {{.Title}}}}\\[\baselineskip]
+{\huge {{.Subtitle}} \footnote{The authors would like to thank X, Y, and Z for their comments and suggestions.}}\\[\baselineskip]
+\par
+\vspace*{2\baselineskip}
+{\Large {{.Author}}}\\
+\endgroup
+
 \thispagestyle{empty}
 
 % Table of contents
@@ -116,8 +115,8 @@
 \tableofcontents
 \newpage
 
-% The main content
-\input{content}
+% Main content
+{{.Content}}
 
 % Bibliography
 \newpage
