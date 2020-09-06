@@ -1,0 +1,126 @@
+% We created the initial layout for use with XeLaTex. We've extended it to
+% work with LaTeX/pdfLatex/LuaLaTeX, but those aren't yet as polished as
+% the XeLaTeX version.
+%
+% Using XeLaTeX with TeX Live version 2019 produces a compile warning. We are
+% not aware of any actual issues resulting from this but also can't remove
+% the warning at the moment.
+\documentclass[10pt,article,a4paper,oneside]{memoir}
+\usepackage[unicode, final, linkcolor=black, citecolor=black, colorlinks=true, urlcolor=blue]{hyperref}
+
+% Memoir class equivalent to parskip functionality
+\setlength{\parindent}{0pt}
+\nonzeroparskip
+
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{IEEEtrantools}
+\usepackage{ifluatex,ifxetex}
+\ifxetex
+    \usepackage{fontspec}
+    \setmainfont{XCharter}
+    \usepackage{xltxtra}
+    \usepackage{polyglossia}
+    \setmainlanguage[variant=american]{english}
+\else
+    \usepackage[utf8]{inputenc}
+    \usepackage[T1]{fontenc}
+    \usepackage[american]{babel}
+\fi
+\usepackage{graphicx}
+\usepackage{csquotes}
+\usepackage[backend=biber,sorting=none]{biblatex}
+\usepackage{mleftright}
+\mleftright
+
+% Font sizes
+\renewcommand{\footnotesize}{\fontsize{8pt}{9pt}\selectfont}
+\renewcommand{\normalsize}{\fontsize{10pt}{14pt}\selectfont}
+\fontsize{10pt}{14pt}\selectfont
+
+% From http://mirrors.ibiblio.org/CTAN/fonts/xcharter/doc/xcharter-doc.pdf
+\usepackage[scaled=1.04,varqu,varl]{inconsolata}
+\usepackage[type1]{cabin}
+% Alternatively, xcharter instead of libertine
+\usepackage[libertine,vvarbb,scaled=1.05]{newtxmath}
+\usepackage[cal=boondoxo]{mathalfa}\linespread{1.04}
+
+\setlength{\beforechapskip}{20.74pt}
+\renewcommand{\chapnumfont}{\fontsize{29.87pt}{39.82pt}\selectfont\color{darkgray}}
+\renewcommand{\chaptitlefont}{\huge\rmfamily\color{darkgray}}
+\renewcommand*{\printchaptername}{\chapnumfont}
+\renewcommand*{\afterchaptertitle}{\par\nobreak\vspace*{-10pt}\hrulefill\vskip\afterchapskip}
+\setlength{\afterchapskip}{\baselineskip}
+
+% The following three paragraphs are adapted from
+% https://github.com/pfasante/phd_thesis
+
+%%% ToC Style %%%
+\newlength{\aftertocskip}
+\renewcommand*{\aftertoctitle}{\par\nobreak\vspace*{-10pt}\hrulefill\vskip\aftertocskip}
+
+%%% Section and Subsection Style %%%
+\setcounter{secnumdepth}{3}
+\setsecheadstyle{\Large\bfseries\color{darkgray}}
+\setsubsecheadstyle{\large\bfseries\color{darkgray}}
+\setsubsubsecheadstyle{\normalfont\bfseries\color{darkgray}}
+\setsecnumformat{\Large\selectfont\upshape\csname #1secnumformat\endcsname}
+\newcommand\sectionsecnumformat{\thesection\quad}
+\newcommand\subsectionsecnumformat{\thesubsection\quad}
+\setaftersecskip{\baselineskip}
+
+%%% Title page
+\newcommand*{\titleTH}{\begingroup
+\center
+\vspace*{2\baselineskip}
+{\textcolor{darkgray}{\fontsize{29.87pt}{39.82pt}\selectfont Lorem Ipsum Dolor Sit Amet}}\\[\baselineskip]
+{\huge Suspendisse urna tellus, dictum vitae erat vel\footnote{The authors would like to thank X, Y, and Z for their comments and suggestions.}}\\[\baselineskip]
+\par
+\vspace*{2\baselineskip}
+{\Large Modeling Cooperation}\\
+\endgroup}
+
+% From https://stats.meta.stackexchange.com/questions/1419/latex-macros-for-expectation-variance-and-covariance
+\newcommand{\Expect}{{\rm I\kern-.3em E}}
+
+\newcommand{\argmax}{\operatornamewithlimits{arg\,max}}
+
+\DeclareFieldFormat{url}{%
+  \iffieldundef{doi}{%
+    \mkbibacro{URL}\addcolon\space\url{#1}%
+  }{%
+  }%
+}
+
+\DeclareFieldFormat{urldate}{%
+  \iffieldundef{doi}{%
+    \mkbibparens{\bibstring{urlseen}\space#1}%
+  }{%
+  }%
+}
+
+% Example equations
+\newcommand{\squash}{q}
+\newcommand{\catchup}{\min\left(\iota,\left(\frac{\max\left(I_{t}\right)}{I_{i,t}}\right)^{\kappa}\right)}
+
+\addbibresource{library.bib}
+
+\begin{document}
+
+\titleTH
+\thispagestyle{empty}
+
+% Table of contents
+\newpage
+\tableofcontents
+\newpage
+
+% The main content
+\input{content}
+
+% Bibliography
+\newpage
+\printbibliography
+
+\end{document}

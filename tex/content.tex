@@ -1,0 +1,42 @@
+% The memoir package we're using for typography is similar to the LaTeX
+% book class and thus we need to use chapters as the top-level item.
+% We can make memoir look like an article but need to use chapters either way.
+\chapter{Example One}
+
+\section{Foo}
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed at mi id ipsum volutpat aliquet. Aenean ligula ex, dictum nec mi et, tristique commodo nulla. Cras cursus aliquet eros, sit amet blandit augue feugiat non. Nullam efficitur pretium ex id lobortis. Donec porta eros at interdum scelerisque. Ut cursus, lectus in scelerisque viverra, nisi metus volutpat est, et elementum magna velit non velit. Praesent congue, augue hendrerit hendrerit aliquam, risus nibh convallis neque, ac commodo nisl lacus nec ligula.
+
+Duis venenatis odio ut risus vulputate commodo. Morbi imperdiet nisi sed augue bibendum, ut aliquet quam auctor. Phasellus convallis sapien id commodo feugiat. Nam dictum urna eros. Vestibulum metus odio, mattis sed fermentum a, lacinia non nisi. Suspendisse at eros vel ante ultricies mattis. In vitae leo interdum, placerat massa nec, rhoncus velit. Mauris id leo hendrerit, venenatis urna hendrerit, placerat nisi.
+
+Example equation:
+\begin{equation}\label{eq:individualprod}
+  I_{i,t+1}=I_{i,t}+\varepsilon_{i,t}\left(s_{i,t}\right)^{\squash}\catchup
+\end{equation}
+
+Nulla faucibus sapien urna, nec tempus ipsum pharetra vel. Pellentesque dignissim, sapien et vehicula consectetur, mi odio aliquam felis, et pellentesque nisl urna quis sem. Sed eu erat eget nisi bibendum gravida. Orci varius natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus.
+
+Curabitur tempus interdum malesuada. Aenean augue elit, lobortis sit amet risus nec, consectetur pulvinar mi. Duis euismod sapien sed condimentum vehicula. Nullam semper viverra erat eu sollicitudin. Cras luctus augue nec lacus interdum, eu vehicula mi elementum. Phasellus nec quam eu est pulvinar dignissim sit amet eget purus. Etiam in viverra nisl, eu fermentum leo.
+
+Duis quis elit nec massa ultricies bibendum quis vitae orci. Sed eget odio id arcu laoreet ultrices id sit amet metus. Mauris convallis nisl sed metus lacinia, eget hendrerit arcu venenatis. Curabitur scelerisque finibus purus, eu viverra ipsum aliquam id. Pellentesque ac magna ac lectus faucibus ornare. Donec purus lacus, vehicula nec erat sed, faucibus auctor est.
+
+See \autoref{eq:individualprod}.
+
+\chapter{Example Two}
+\section{Bar}
+
+Nunc orci mauris, feugiat quis pellentesque id, efficitur eu est. Cras a ligula vulputate, aliquam eros ut, maximus justo. Duis sit amet scelerisque ligula, venenatis dictum purus. Cras in condimentum est. Nam leo purus, elementum ut libero eu, placerat vestibulum nunc. Vestibulum porttitor, velit nec ultrices rutrum, elit tortor malesuada erat, sed sodales risus libero vitae lorem. Sed sit amet lorem sem. Aliquam diam elit, condimentum et mi ut, vehicula rhoncus odio. Nunc ut nibh a orci eleifend dapibus. Duis efficitur interdum magna. Nulla vulputate condimentum augue. Vivamus vitae justo nec augue pharetra finibus. Curabitur rhoncus imperdiet sem, venenatis tempus neque ultricies non. Sed suscipit venenatis venenatis.
+
+Example alignment of equations:
+
+\begin{IEEEeqnarray*}{lCl}
+\theta & = & 0 \\
+f_{i,0} & = & 1, \forall i \\
+I^{safe}_{i,0} & = & 0, \forall i \\
+I^{oth}_{i,0} & \sim & Uniform\left[0:\mu\right], \forall i \\
+enmity_{sd} & = & 0
+\end{IEEEeqnarray*}
+
+Donec porttitor, tortor ultricies vehicula ultrices, nisi magna dictum dolor, vel pretium elit leo eget sem. Sed posuere magna sit amet interdum gravida. Vivamus et ipsum porta, dapibus lectus sed, ullamcorper urna. Vivamus lacinia neque justo, eu tincidunt arcu posuere non. Vivamus vitae tortor velit. Etiam et aliquet lacus. Vivamus velit ex, auctor in elementum non, sagittis vel felis. Vivamus vulputate felis nec venenatis ultrices. Nullam vehicula dictum sapien in semper. Curabitur lacinia commodo enim sed mollis. Sed tincidunt bibendum leo, at lobortis ipsum ornare quis. Aenean varius diam arcu, sed porttitor arcu scelerisque varius. Proin lacus libero, tempus ut nunc eget, luctus placerat velit. Suspendisse quis pretium turpis. Ut in libero justo.
+
+Example reference is~\cite{HanResearchAgenda}.
