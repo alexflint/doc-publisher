@@ -115,7 +115,10 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 		if err != nil {
 			return fmt.Errorf("error writing %s to cloud storage: %w", image.Filename, err)
 		}
-		wr.Close()
+		err = wr.Close()
+		if err != nil {
+			return fmt.Errorf("error writing %s to cloud storage: %w", image.Filename, err)
+		}
 
 		// store the URL in the map
 		imgURL := fmt.Sprintf("https://storage.googleapis.com/%s/%s", obj.BucketName(), obj.ObjectName())
@@ -406,16 +409,16 @@ func (dc *markdownConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) 
 
 	// the following features are not supported at all in markdown
 	if t.TextStyle.Underline {
-		log.Printf("warning: ignoring underlined text (%q)", t.Content)
+		log.Printf("warning: ignoring underlined formatting on %q", t.Content)
 	}
 	if t.TextStyle.SmallCaps {
-		log.Printf("warning: ignoring smallcaps (%q)", t.Content)
+		log.Printf("warning: ignoring smallcaps on %q", t.Content)
 	}
 	if t.TextStyle.BackgroundColor != nil {
-		log.Printf("warning: ignoring background color (%q)", t.Content)
+		log.Printf("warning: ignoring background color on %q", t.Content)
 	}
 	if t.TextStyle.ForegroundColor != nil {
-		log.Printf("warning: ignoring foreground color (%q)", t.Content)
+		log.Printf("warning: ignoring foreground color on %q", t.Content)
 	}
 	switch t.TextStyle.BaselineOffset {
 	case "SUBSCRIPT":

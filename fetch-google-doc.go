@@ -25,7 +25,7 @@ import (
 )
 
 type fetchGoogleDocArgs struct {
-	Document string
+	Document string `arg:"positional"`
 	SaveZip  string
 	Output   string `arg:"-o,--output"`
 }

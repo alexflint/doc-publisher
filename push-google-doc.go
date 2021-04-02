@@ -19,7 +19,7 @@ import (
 )
 
 type pushGoogleDocArgs struct {
-	Document string
+	Document string `arg:"positional"`
 }
 
 func pushGoogleDoc(ctx context.Context, args *pushGoogleDocArgs) error {
