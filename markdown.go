@@ -408,17 +408,17 @@ func (dc *markdownConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) 
 	}
 
 	// the following features are not supported at all in markdown
-	if t.TextStyle.Underline {
-		log.Printf("warning: ignoring underlined formatting on %q", t.Content)
-	}
 	if t.TextStyle.SmallCaps {
 		log.Printf("warning: ignoring smallcaps on %q", t.Content)
 	}
 	if t.TextStyle.BackgroundColor != nil {
 		log.Printf("warning: ignoring background color on %q", t.Content)
 	}
-	if t.TextStyle.ForegroundColor != nil {
+	if t.TextStyle.ForegroundColor != nil && t.TextStyle.Link == nil {
 		log.Printf("warning: ignoring foreground color on %q", t.Content)
+	}
+	if t.TextStyle.Underline && t.TextStyle.Link == nil {
+		log.Printf("warning: ignoring underlining on %q", t.Content)
 	}
 	switch t.TextStyle.BaselineOffset {
 	case "SUBSCRIPT":
