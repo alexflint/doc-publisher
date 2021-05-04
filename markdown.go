@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -58,23 +57,6 @@ func splitSpace(s string) (left, middle, right string) {
 	return
 }
 
-func hexInt(n int) string {
-	var b bytes.Buffer
-	binary.Write(&b, binary.LittleEndian, n)
-	return hex.EncodeToString(b.Bytes())
-}
-
-func formatColor(c *docs.OptionalColor) string {
-	// Google docs supports fully-opaque colors, plus a special case
-	// for the fully-transparent color. There is no support for
-	// partial transparency
-	if c.Color == nil {
-		return "transparent"
-	}
-	rgb := c.Color.RgbColor
-	return fmt.Sprintf("rgb(%.2f %.2f %.2f)", rgb.Red, rgb.Green, rgb.Blue)
-}
-
 // regular expression for finding image references in HTML-exported google docs
 var imageRegexp = regexp.MustCompile(`images\/image\d+\.png`)
 
@@ -126,8 +108,6 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 		fmt.Printf("%s => %s\n", image.Filename, imgURL)
 	}
 
-	fmt.Println(imageOrder)
-
 	// convert the document to markdown
 	conv := markdownConverter{
 		doc: d.Doc,
@@ -163,7 +143,7 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 		fmt.Fprint(&markdown, "\n") // make sure there is an empty line between each footnote
 	}
 
-	// drop sequences of more than 3 newlines
+	// drop sequences of three or more consecutive newlines
 	var newlines int
 	var whitespace string
 	var final strings.Builder
@@ -200,6 +180,7 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 		if err != nil {
 			return fmt.Errorf("error writing to %s: %w", args.Output, err)
 		}
+		fmt.Printf("wrote markdown to %s\n", args.Output)
 	}
 
 	return nil

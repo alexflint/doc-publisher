@@ -22,11 +22,24 @@ type pushGoogleDocArgs struct {
 	Document string `arg:"positional"`
 }
 
+func formatColor(c *docs.OptionalColor) string {
+	// Google docs support opaque colors, plus a special case for the
+	// transparent color. There is no support for partial transparency.
+	if c.Color == nil {
+		return "transparent"
+	}
+	rgb := c.Color.RgbColor
+	return fmt.Sprintf("rgb(%.2f %.2f %.2f)", rgb.Red, rgb.Green, rgb.Blue)
+}
+
 func pushGoogleDoc(ctx context.Context, args *pushGoogleDocArgs) error {
 	const tokFile = ".cache/google-push-token.json"
 	googleToken, err := GoogleAuth(ctx, tokFile,
 		"https://www.googleapis.com/auth/documents",
 		"https://www.googleapis.com/auth/drive.readonly")
+	if err != nil {
+		return fmt.Errorf("error authenticating with google: %w", err)
+	}
 
 	// create the drive client
 	driveClient, err := drive.NewService(ctx, option.WithTokenSource(googleToken))

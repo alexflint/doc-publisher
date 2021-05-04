@@ -35,6 +35,9 @@ func fetchGoogleDoc(ctx context.Context, args *fetchGoogleDocArgs) error {
 	googleToken, err := GoogleAuth(ctx, tokFile,
 		"https://www.googleapis.com/auth/documents.readonly",
 		"https://www.googleapis.com/auth/drive.readonly")
+	if err != nil {
+		return fmt.Errorf("error authenticating with google: %w", err)
+	}
 
 	// create the drive client
 	driveClient, err := drive.NewService(ctx, option.WithTokenSource(googleToken)) // option.WithHTTPClient(googleClient))
@@ -132,6 +135,6 @@ func fetchGoogleDoc(ctx context.Context, args *fetchGoogleDocArgs) error {
 		return fmt.Errorf("error encoding document as gob: %w", err)
 	}
 
-	fmt.Printf("wrote to %s\n", args.Output)
+	fmt.Printf("wrote googledoc to %s\n", args.Output)
 	return nil
 }
