@@ -5,11 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -18,8 +20,9 @@ import (
 )
 
 type exportMarkdownArgs struct {
-	Input  string `arg:"positional"`
-	Output string `arg:"-o,--output"`
+	Input      string `arg:"positional"`
+	SeparateBy string `help:"separate into multiple markdown files. Possible values: pagebreak"`
+	Output     string `arg:"-o,--output"`
 }
 
 // determine whether a font is monospace (for detecting code blocks)
@@ -61,6 +64,7 @@ func splitSpace(s string) (left, middle, right string) {
 var imageRegexp = regexp.MustCompile(`images\/image\d+\.png`)
 
 func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
+	// load the document from a file
 	d, err := ReadGoogleDoc(args.Input)
 	if err != nil {
 		return err
@@ -108,79 +112,131 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 		fmt.Printf("%s => %s\n", image.Filename, imgURL)
 	}
 
-	// convert the document to markdown
-	conv := markdownConverter{
-		doc: d.Doc,
-	}
-	for _, imageFilename := range imageOrder {
-		conv.imageURLs = append(conv.imageURLs, imageURLByFilename[imageFilename])
+	type job struct {
+		elements []*docs.StructuralElement
+		filename string // filename or empty for stdout
 	}
 
-	// process the main body content
-	var markdown bytes.Buffer
-	err = conv.process(&markdown, d.Doc.Body.Content)
-	if err != nil {
-		return fmt.Errorf("error converting document body to markdown: %w", err)
-	}
+	var jobs []job
 
-	// process each footnote
-	for _, footnote := range d.Doc.Footnotes {
-		var footnoteMarkdown bytes.Buffer
-		err = conv.process(&footnoteMarkdown, footnote.Content)
-		if err != nil {
-			return fmt.Errorf("error converting footnote %s content to markdown: %w", footnote.FootnoteId, err)
+	switch args.SeparateBy {
+	case "":
+		// by default we process the whole document into a single markdown file
+		jobs = append(jobs, job{
+			elements: d.Doc.Body.Content,
+			filename: args.Output,
+		})
+	case "pagebreak":
+		if !strings.Contains(args.Output, "INDEX") {
+			return errors.New("when using --separateby, output must be to a filename containing the string 'INDEX'")
 		}
 
-		fmt.Fprintf(&markdown, "[^%s]: ", footnote.FootnoteId)
-		for i, line := range strings.Split(footnoteMarkdown.String(), "\n") {
-			if i > 0 {
-				fmt.Fprint(&markdown, "    ") // multi-line footnotes in markdown must be indented
+		var cur []*docs.StructuralElement
+		for i, elem := range d.Doc.Body.Content {
+			var found bool
+			if elem.Paragraph != nil {
+				for _, e := range elem.Paragraph.Elements {
+					if e.PageBreak != nil {
+						found = true
+						break
+					}
+				}
+			}
+			if found || i == len(d.Doc.Body.Content)-1 {
+				jobs = append(jobs, job{
+					elements: cur,
+					filename: strings.ReplaceAll(args.Output, "INDEX", strconv.Itoa(len(jobs)+1)),
+				})
+				cur = make([]*docs.StructuralElement, 0, 1000)
+			} else {
+				cur = append(cur, elem)
+			}
+		}
+	default:
+		return fmt.Errorf("invalid value for --separateby: %q", args.SeparateBy)
+	}
+
+	for _, job := range jobs {
+		// convert the document to markdown
+		conv := markdownConverter{
+			doc: d.Doc,
+		}
+		for _, imageFilename := range imageOrder {
+			conv.imageURLs = append(conv.imageURLs, imageURLByFilename[imageFilename])
+		}
+
+		// process the main body content
+		var markdown bytes.Buffer
+		err = conv.process(&markdown, job.elements)
+		if err != nil {
+			return fmt.Errorf("error converting document body to markdown: %w", err)
+		}
+
+		// process each footnote
+		for _, footnoteID := range conv.footnotes {
+			footnote, ok := d.Doc.Footnotes[footnoteID]
+			if !ok {
+				fmt.Printf("warning: no content found for footnote %q referenced in document", footnoteID)
+				continue
 			}
 
-			fmt.Fprintln(&markdown, line)
+			var footnoteMarkdown bytes.Buffer
+			err = conv.process(&footnoteMarkdown, footnote.Content)
+			if err != nil {
+				return fmt.Errorf("error converting footnote %s content to markdown: %w", footnote.FootnoteId, err)
+			}
+
+			fmt.Fprintf(&markdown, "[^%s]: ", footnote.FootnoteId)
+			for i, line := range strings.Split(footnoteMarkdown.String(), "\n") {
+				if i > 0 {
+					fmt.Fprint(&markdown, "    ") // multi-line footnotes in markdown must be indented
+				}
+
+				fmt.Fprintln(&markdown, line)
+			}
+
+			fmt.Fprint(&markdown, "\n") // make sure there is an empty line between each footnote
 		}
 
-		fmt.Fprint(&markdown, "\n") // make sure there is an empty line between each footnote
-	}
+		// drop sequences of three or more consecutive newlines
+		var newlines int
+		var whitespace string
+		var final strings.Builder
+		final.Grow(markdown.Len())
+		for {
+			r, _, err := markdown.ReadRune()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return fmt.Errorf("error reading runes from markdown buffer: %w", err)
+			}
 
-	// drop sequences of three or more consecutive newlines
-	var newlines int
-	var whitespace string
-	var final strings.Builder
-	final.Grow(markdown.Len())
-	for {
-		r, _, err := markdown.ReadRune()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("error reading runes from markdown buffer: %w", err)
-		}
-
-		if r == '\n' {
-			if newlines < 2 {
+			if r == '\n' {
+				if newlines < 2 {
+					final.WriteRune(r)
+				}
+				newlines++
+				whitespace = "" // drop trailing whitespace
+			} else if unicode.IsSpace(r) {
+				whitespace += string(r)
+			} else {
+				final.WriteString(whitespace)
 				final.WriteRune(r)
+				newlines = 0
+				whitespace = ""
 			}
-			newlines++
-			whitespace = "" // drop trailing whitespace
-		} else if unicode.IsSpace(r) {
-			whitespace += string(r)
-		} else {
-			final.WriteString(whitespace)
-			final.WriteRune(r)
-			newlines = 0
-			whitespace = ""
 		}
-	}
 
-	if args.Output == "" {
-		fmt.Println(final.String())
-	} else {
-		err = ioutil.WriteFile(args.Output, []byte(final.String()), 0666)
-		if err != nil {
-			return fmt.Errorf("error writing to %s: %w", args.Output, err)
+		if job.filename == "" {
+			fmt.Println(final.String())
+		} else {
+			err = ioutil.WriteFile(job.filename, []byte(final.String()), 0666)
+			if err != nil {
+				return fmt.Errorf("error writing to %s: %w", job.filename, err)
+			}
+			fmt.Printf("wrote markdown to %s\n", job.filename)
 		}
-		fmt.Printf("wrote markdown to %s\n", args.Output)
 	}
 
 	return nil
@@ -191,6 +247,7 @@ type markdownConverter struct {
 	imageURLs  []string
 	imageIndex int
 	codeBlock  bytes.Buffer // text identified as lines of code
+	footnotes  []string     // footnote IDs processed by this converter
 }
 
 func (dc *markdownConverter) process(out *bytes.Buffer, content []*docs.StructuralElement) error {
@@ -322,6 +379,17 @@ func (dc *markdownConverter) processParagraph(out *bytes.Buffer, p *docs.Paragra
 			log.Println("warning: ignoring equation")
 		case el.FootnoteReference != nil:
 			fmt.Fprintf(out, "[^%s]", el.FootnoteReference.FootnoteId)
+			// add this footnote ID if it is not already in the list
+			var found bool
+			for _, f := range dc.footnotes {
+				if f == el.FootnoteReference.FootnoteId {
+					found = true
+					break
+				}
+			}
+			if !found {
+				dc.footnotes = append(dc.footnotes, el.FootnoteReference.FootnoteId)
+			}
 		case el.AutoText != nil:
 			log.Println("warning: ignoring auto text")
 		case el.HorizontalRule != nil:
