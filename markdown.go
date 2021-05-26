@@ -71,13 +71,6 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 		return err
 	}
 
-	// look at the order in which the images appear in the HTML
-	var imageOrder []string
-	matches := imageRegexp.FindAll(d.HTML, -1)
-	for _, m := range matches {
-		imageOrder = append(imageOrder, string(m))
-	}
-
 	// create a cloud storage client
 	storageClient, err := storage.NewClient(ctx)
 	if err != nil {
@@ -118,6 +111,42 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 		imgURL := fmt.Sprintf("https://storage.googleapis.com/%s/%s", obj.BucketName(), obj.ObjectName())
 		imageURLByFilename[image.Filename] = imgURL
 		fmt.Printf("%s => %s\n", image.Filename, imgURL)
+	}
+
+	// check that the number of images in the HTML matches the number of images in the document
+	imageOrderHTML := imageRegexp.FindAll(d.HTML, -1)
+	var inlineObjectIDs []string
+	for _, elem := range d.Doc.Body.Content {
+		if elem.Paragraph == nil {
+			continue
+		}
+		for _, e := range elem.Paragraph.Elements {
+			if e.InlineObjectElement == nil {
+				continue
+			}
+
+			obj, ok := d.Doc.InlineObjects[e.InlineObjectElement.InlineObjectId]
+			if !ok {
+				continue
+			}
+
+			emb := obj.InlineObjectProperties.EmbeddedObject
+			if emb.EmbeddedDrawingProperties == nil && emb.ImageProperties == nil {
+				continue
+			}
+
+			inlineObjectIDs = append(inlineObjectIDs, e.InlineObjectElement.InlineObjectId)
+		}
+	}
+
+	if len(inlineObjectIDs) != len(imageOrderHTML) {
+		return fmt.Errorf("found %d images in the HTML but %d inline objects in the document", len(imageOrderHTML), len(inlineObjectIDs))
+	}
+
+	// make a map from InlineObjectID to URL
+	imageURLByObjectID := make(map[string]string)
+	for i := range inlineObjectIDs {
+		imageURLByObjectID[inlineObjectIDs[i]] = imageURLByFilename[string(imageOrderHTML[i])]
 	}
 
 	type job struct {
@@ -167,10 +196,8 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 	for _, job := range jobs {
 		// convert the document to markdown
 		conv := markdownConverter{
-			doc: d.Doc,
-		}
-		for _, imageFilename := range imageOrder {
-			conv.imageURLs = append(conv.imageURLs, imageURLByFilename[imageFilename])
+			doc:                d.Doc,
+			imageURLByObjectID: imageURLByObjectID,
 		}
 
 		// process the main body content
@@ -251,11 +278,10 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 }
 
 type markdownConverter struct {
-	doc        *docs.Document
-	imageURLs  []string
-	imageIndex int
-	codeBlock  bytes.Buffer // text identified as lines of code
-	footnotes  []string     // footnote IDs processed by this converter
+	doc                *docs.Document
+	imageURLByObjectID map[string]string
+	codeBlock          bytes.Buffer // text identified as lines of code
+	footnotes          []string     // footnote IDs processed by this converter
 }
 
 func (dc *markdownConverter) process(out *bytes.Buffer, content []*docs.StructuralElement) error {
@@ -440,11 +466,7 @@ func (dc *markdownConverter) processInlineObject(out *bytes.Buffer, objRef *docs
 	emb := obj.InlineObjectProperties.EmbeddedObject
 	switch {
 	case emb.ImageProperties != nil || emb.EmbeddedDrawingProperties != nil:
-		if dc.imageIndex >= len(dc.imageURLs) {
-			return fmt.Errorf("found %d images in zip but too many objects in the doc", len(dc.imageURLs))
-		}
-		fmt.Fprintf(out, "![%s](%s)", emb.Title, dc.imageURLs[dc.imageIndex])
-		dc.imageIndex++
+		fmt.Fprintf(out, "![%s](%s)", emb.Title, dc.imageURLByObjectID[id])
 	case emb.LinkedContentReference != nil:
 		log.Println("warning: ignoring linked spreadsheet / chart")
 	}
