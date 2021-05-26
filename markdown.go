@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -61,7 +62,7 @@ func splitSpace(s string) (left, middle, right string) {
 }
 
 // regular expression for finding image references in HTML-exported google docs
-var imageRegexp = regexp.MustCompile(`images\/image\d+\.png`)
+var imageRegexp = regexp.MustCompile(`images\/image\d+\.(png|jpg)`)
 
 func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 	// load the document from a file
@@ -86,12 +87,19 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 	imageBucket := storageClient.Bucket("doc-publisher-images")
 	imageURLByFilename := make(map[string]string)
 
+	fmt.Printf("loaded a googledoc with %d images\n", len(d.Images))
+
 	// upload each image to cloud storage
 	for _, image := range d.Images {
+		extension := filepath.Ext(image.Filename)
+		if extension == "" {
+			extension = ".jpg"
+		}
+
 		// use a hash of the image content as the filename
 		hash := sha256.Sum256(image.Content)
 		hexhash := hex.EncodeToString(hash[:8]) // we just take the first 8 bytes for brevity
-		name := hexhash + ".jpg"
+		name := hexhash + extension
 		obj := imageBucket.Object(name)
 
 		wr := obj.NewWriter(ctx)
@@ -320,6 +328,11 @@ func (dc *markdownConverter) processParagraph(out *bytes.Buffer, p *docs.Paragra
 
 	// if not a code block then flush any buffered code block
 	dc.flushCodeBlock(out)
+
+	// print the blockquote prefix
+	if p.ParagraphStyle.IndentStart != nil && p.ParagraphStyle.IndentStart.Magnitude > 0 && p.Bullet == nil {
+		fmt.Fprintf(out, "> ")
+	}
 
 	// print the heading prefix
 	var isHeading bool
