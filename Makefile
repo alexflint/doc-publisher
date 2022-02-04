@@ -14,3 +14,14 @@ setup:
 		texlive-publishers \
 		texlive-bibtex-extra \
 		texlive-xetex
+
+
+# Secret encryption and decryption
+
+encrypt-secrets:
+	echo "Please enter the password from lastpass under 'doc-publisher secrets'..."
+	go run ./cmd/crypt/*.go --encrypt secrets/*.json
+
+decrypt-secrets:
+	echo "Please enter the password from bitwarden under 'doc-publisher secrets'..."
+	go run ./cmd/crypt/*.go --decrypt secrets/*.encrypted
