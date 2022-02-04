@@ -18,6 +18,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/docs/v1"
+	"google.golang.org/api/option"
 )
 
 type exportMarkdownArgs struct {
@@ -72,7 +73,8 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 	}
 
 	// create a cloud storage client
-	storageClient, err := storage.NewClient(ctx)
+	storageClient, err := storage.NewClient(ctx,
+		option.WithCredentialsFile("secrets/service_account.json"))
 	if err != nil {
 		return fmt.Errorf("error creating storage client: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 
+	"github.com/pkg/browser"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -46,9 +47,12 @@ type googleTokenSource struct {
 }
 
 func (ts googleTokenSource) Token() (*oauth2.Token, error) {
-	authURL := ts.config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to the following link in your browser then type the "+
-		"authorization code: \n%v\n", authURL)
+	authURL := ts.config.AuthCodeURL("state-token") //, oauth2.AccessTypeOffline)
+	err := browser.OpenURL(authURL)
+	if err != nil {
+		fmt.Println("Go to the following link in your browser then type the " +
+			"authorization code:\n" + authURL)
+	}
 
 	var authCode string
 	if _, err := fmt.Scan(&authCode); err != nil {
@@ -74,7 +78,7 @@ func (ts googleTokenSource) Token() (*oauth2.Token, error) {
 // GoogleAuth authenticates with Google using oauth
 func GoogleAuth(ctx context.Context, tokFile string, scopes ...string) (oauth2.TokenSource, error) {
 	// get oauth credentials
-	b, err := ioutil.ReadFile("oauth_credentials.json")
+	b, err := ioutil.ReadFile("secrets/oauth_credentials.json")
 	if err != nil {
 		return nil, fmt.Errorf("unable to read client secret file: %w", err)
 	}
