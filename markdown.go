@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/docs/v1"
@@ -235,10 +236,18 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 			fmt.Fprint(&markdown, "\n") // make sure there is an empty line between each footnote
 		}
 
+		var final strings.Builder
+
+		// first put the latex header in
+		if conv.latexDefs.Len() > 0 {
+			final.WriteString("$$\n")
+			conv.latexDefs.WriteTo(&final)
+			final.WriteString("$$\n\n")
+		}
+
 		// drop sequences of three or more consecutive newlines
 		var newlines int
 		var whitespace string
-		var final strings.Builder
 		final.Grow(markdown.Len())
 		for {
 			r, _, err := markdown.ReadRune()
@@ -284,6 +293,7 @@ type markdownConverter struct {
 	imageURLByObjectID map[string]string
 	codeBlock          bytes.Buffer // text identified as lines of code
 	footnotes          []string     // footnote IDs processed by this converter
+	latexDefs          bytes.Buffer
 }
 
 func (dc *markdownConverter) process(out *bytes.Buffer, content []*docs.StructuralElement) error {
@@ -476,6 +486,11 @@ func (dc *markdownConverter) processInlineObject(out *bytes.Buffer, objRef *docs
 	return nil
 }
 
+// when a line begins with one of these, put it into the latex header block
+var latexLinePrefixes = []string{
+	`\newcommand`,
+}
+
 func (dc *markdownConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) error {
 	// unfortunately markdown only supports at most one of italic, bold,
 	// or strikethrough for any one bit of text
@@ -521,11 +536,23 @@ func (dc *markdownConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) 
 	// in markdown we must apply styling separately to each line
 	link := t.TextStyle.Link
 	lines := strings.Split(content, "\n")
+
+outer:
 	for i, line := range lines {
 		if len(line) == 0 {
 			continue
 		}
 
+		// lines that begin \newcommand or similar are treated as special latex blocks
+		fmt.Printf("line: %q\n", line)
+		for _, prefix := range latexLinePrefixes {
+			if strings.HasPrefix(line, prefix) {
+				fmt.Fprintln(&dc.latexDefs, line)
+				continue outer
+			}
+		}
+
+		// write the beginning of a link in form [...TEXT...](...URL...)
 		if link != nil {
 			fmt.Fprint(out, "[")
 		}
@@ -537,7 +564,9 @@ func (dc *markdownConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) 
 		fmt.Fprint(out, leadingSpace)
 		if len(middle) > 0 {
 			fmt.Fprint(out, surround)
-			fmt.Fprint(out, middle)
+			if err := dc.processLine(out, middle); err != nil {
+				return err
+			}
 			fmt.Fprint(out, surround)
 		}
 		fmt.Fprint(out, trailingSpace)
@@ -549,6 +578,37 @@ func (dc *markdownConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) 
 		if i+1 < len(lines) {
 			fmt.Fprintf(out, "\n")
 		}
+	}
+
+	return nil
+}
+
+// processLine adds dollar signs around latex identifiers
+func (dc *markdownConverter) processLine(out *bytes.Buffer, line string) error {
+	var inLatex bool
+	var pos int
+	for len(line) > 0 {
+		r, sz := utf8.DecodeRuneInString(line)
+		if r == utf8.RuneError {
+			return fmt.Errorf("error decoding rune from string at position %d", pos)
+		}
+		pos += sz
+		line = line[sz:]
+
+		word := unicode.IsNumber(r) || unicode.IsLetter(r)
+		if !inLatex && r == rune('\\') {
+			out.WriteString("$")
+			inLatex = true
+		} else if inLatex && !word {
+			out.WriteString("$")
+			inLatex = false
+		}
+
+		out.WriteRune(r)
+	}
+
+	if inLatex {
+		out.WriteString("$")
 	}
 
 	return nil
