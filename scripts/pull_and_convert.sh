@@ -13,5 +13,9 @@ echo
 echo "================================================================================"
 echo
 
-cat "out/${FILENAME}.md"
-
+if which xclip > /dev/null; then
+    echo "copied markdown to ctrl+c/ctrl+v clipboard"
+    cat "out/${FILENAME}.md" | xclip -selection c
+else
+    cat "out/${FILENAME}.md"
+fi

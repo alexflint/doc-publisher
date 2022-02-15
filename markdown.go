@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"cloud.google.com/go/storage"
+	"github.com/alexflint/go-restructure"
 	"google.golang.org/api/docs/v1"
 	"google.golang.org/api/option"
 )
@@ -61,6 +61,21 @@ func splitSpace(s string) (left, middle, right string) {
 		}
 	}
 	return
+}
+
+// fixLatexSymbol changes \T1 to \Tone and so forth
+func fixLatexSymbol(s string) string {
+	s = strings.ReplaceAll(s, "0", "zero")
+	s = strings.ReplaceAll(s, "1", "one")
+	s = strings.ReplaceAll(s, "2", "two")
+	s = strings.ReplaceAll(s, "3", "three")
+	s = strings.ReplaceAll(s, "4", "four")
+	s = strings.ReplaceAll(s, "5", "five")
+	s = strings.ReplaceAll(s, "6", "six")
+	s = strings.ReplaceAll(s, "7", "seven")
+	s = strings.ReplaceAll(s, "8", "eight")
+	s = strings.ReplaceAll(s, "9", "nine")
+	return s
 }
 
 // regular expression for finding image references in HTML-exported google docs
@@ -199,6 +214,7 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 	for _, job := range jobs {
 		// convert the document to markdown
 		conv := markdownConverter{
+			replace:            make(map[string]string),
 			doc:                d.Doc,
 			imageURLByObjectID: imageURLByObjectID,
 		}
@@ -237,6 +253,7 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 		}
 
 		var final strings.Builder
+		final.Grow(markdown.Len())
 
 		// first put the latex header in
 		if conv.latexDefs.Len() > 0 {
@@ -245,35 +262,32 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 			final.WriteString("$$\n\n")
 		}
 
-		// drop sequences of three or more consecutive newlines
-		var newlines int
-		var whitespace string
-		final.Grow(markdown.Len())
-		for {
-			r, _, err := markdown.ReadRune()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return fmt.Errorf("error reading runes from markdown buffer: %w", err)
+		// apply post-processing
+		var emptylines int
+		for _, line := range strings.Split(markdown.String(), "\n") {
+			// note that whitespace on the left is important
+			line = strings.TrimRightFunc(line, unicode.IsSpace)
+
+			// drop sequences of two or more empty lines
+			if len(line) == 0 {
+				emptylines++
+				if emptylines < 2 {
+					final.WriteRune('\n')
+				}
+				continue
 			}
 
-			if r == '\n' {
-				if newlines < 2 {
-					final.WriteRune(r)
-				}
-				newlines++
-				whitespace = "" // drop trailing whitespace
-			} else if unicode.IsSpace(r) {
-				whitespace += string(r)
-			} else {
-				final.WriteString(whitespace)
-				final.WriteRune(r)
-				newlines = 0
-				whitespace = ""
+			emptylines = 0
+
+			// apply string-to-string replacements (used to rewrite \T1 to \Tone due to latex rules)
+			for from, to := range conv.replace {
+				line = strings.ReplaceAll(line, from, to)
 			}
+
+			final.WriteString(line + "\n")
 		}
 
+		// write the result to output
 		if job.filename == "" {
 			fmt.Println(final.String())
 		} else {
@@ -294,6 +308,7 @@ type markdownConverter struct {
 	codeBlock          bytes.Buffer // text identified as lines of code
 	footnotes          []string     // footnote IDs processed by this converter
 	latexDefs          bytes.Buffer
+	replace            map[string]string // string replacements to apply to whole doc
 }
 
 func (dc *markdownConverter) process(out *bytes.Buffer, content []*docs.StructuralElement) error {
@@ -486,10 +501,17 @@ func (dc *markdownConverter) processInlineObject(out *bytes.Buffer, objRef *docs
 	return nil
 }
 
-// when a line begins with one of these, put it into the latex header block
-var latexLinePrefixes = []string{
-	`\newcommand`,
+// a regular expression for latex \newcommand lines, which get moved automatically to the latex header
+type newcommand struct {
+	_     string `^`
+	_     string `\\newcommand\{`
+	Name  string `.+`
+	_     string `\}\{`
+	Value string `.*`
+	_     string `\}`
 }
+
+var newcommandPattern = restructure.MustCompile(&newcommand{}, restructure.Options{})
 
 func (dc *markdownConverter) processTextRun(out *bytes.Buffer, t *docs.TextRun) error {
 	// unfortunately markdown only supports at most one of italic, bold,
@@ -544,12 +566,15 @@ outer:
 		}
 
 		// lines that begin \newcommand or similar are treated as special latex blocks
-		fmt.Printf("line: %q\n", line)
-		for _, prefix := range latexLinePrefixes {
-			if strings.HasPrefix(line, prefix) {
-				fmt.Fprintln(&dc.latexDefs, line)
-				continue outer
+		var cmd newcommand
+		if newcommandPattern.Find(&cmd, line) {
+			// latex symbols cannot contain digits so we rewrite \E0 to \Enought, \T1 to \Tone, and so forth
+			fixed := fixLatexSymbol(cmd.Name)
+			fmt.Fprintf(&dc.latexDefs, "\\newcommand{%s}{%s}\n", fixed, cmd.Value)
+			if fixed != cmd.Name {
+				dc.replace[cmd.Name] = fixed
 			}
+			continue outer
 		}
 
 		// write the beginning of a link in form [...TEXT...](...URL...)
