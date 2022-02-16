@@ -1,0 +1,22 @@
+{
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/gmail.addons.execute",
+    "https://www.googleapis.com/auth/calendar.addons.execute",
+    "https://www.googleapis.com/auth/docs.addons.execute"
+  ],
+  "addOns": {
+    "common": {
+      "name": "Document Publisher",
+      "logoUrl": "https://raw.githubusercontent.com/webdog/octicons-png/main/black/check.png",
+      "homepageTrigger": {
+        "runFunction": "URL"
+      }
+    },
+    "gmail": {},
+    "drive": {},
+    "calendar": {},
+    "docs": {},
+    "sheets": {},
+    "slides": {}
+  }
+}
