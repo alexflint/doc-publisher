@@ -1,6 +1,7 @@
 IMAGE := gcr.io/doc-publisher-341418/doc-publisher-backend
 SERVICE := doc-publisher-backend		# the cloud run service
 REGION := us-central1					# the region for deployment
+ADDON := doc-publisher					# name of the Google Workspaces addon
 
 default: .bin/addon-backend
 
@@ -24,12 +25,26 @@ configure-docker-credentials:
 
 deploy:
 	gcloud run deploy $(SERVICE) \
-	--image $(IMAGE) \
-	--region $(REGION) \
-	--platform managed
+		--image $(IMAGE) \
+		--region $(REGION) \
+		--platform managed
 
 status:
 	gcloud run services list --platform managed
+
+# Google workspace addons
+
+create-addon:
+	gcloud workspace-add-ons deployments create $(ADDON) \
+		--deployment-file=addon.json
+
+update-addon:
+	gcloud workspace-add-ons deployments replace $(ADDON) \
+		--deployment-file=addon.json
+
+describe-addon:
+	gcloud workspace-add-ons deployments describe $(ADDON) \
+		--deployment-file=addon.json
 
 # Cloud build
 

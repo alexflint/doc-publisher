@@ -1,22 +1,18 @@
 {
   "oauthScopes": [
-    "https://www.googleapis.com/auth/gmail.addons.execute",
-    "https://www.googleapis.com/auth/calendar.addons.execute",
-    "https://www.googleapis.com/auth/docs.addons.execute"
-  ],
+    "https://www.googleapis.com/auth/documents.currentonly",
+    "openid",
+    "email"
+],
   "addOns": {
     "common": {
       "name": "Document Publisher",
-      "logoUrl": "https://raw.githubusercontent.com/webdog/octicons-png/main/black/check.png",
-      "homepageTrigger": {
-        "runFunction": "URL"
-      }
+      "logoUrl": "https://raw.githubusercontent.com/webdog/octicons-png/main/black/check.png"
     },
-    "gmail": {},
-    "drive": {},
-    "calendar": {},
-    "docs": {},
-    "sheets": {},
-    "slides": {}
+    "docs": {
+      "homepageTrigger": {
+        "runFunction": "https://doc-publisher-backend-mxh6l73c4a-uc.a.run.app/"
+      }
+    }
   }
 }
