@@ -1,6 +1,7 @@
 {
   "oauthScopes": [
     "https://www.googleapis.com/auth/documents.currentonly",
+    "https://www.googleapis.com/auth/drive.file",
     "openid",
     "email"
 ],

@@ -1,7 +1,8 @@
 IMAGE := gcr.io/doc-publisher-341418/doc-publisher-backend
-SERVICE := doc-publisher-backend		# the cloud run service
-REGION := us-central1					# the region for deployment
-ADDON := doc-publisher					# name of the Google Workspaces addon
+SERVICE := doc-publisher-backend	# the cloud run service
+REGION := us-central1				# the region for deployment
+ADDON := doc-publisher				# name of the Google Workspaces addon
+PROJECT := doc-publisher-341418		# google cloud project
 
 default: .bin/addon-backend
 
@@ -32,6 +33,15 @@ deploy:
 status:
 	gcloud run services list --platform managed
 
+logs:
+	xdg-open "https://console.cloud.google.com/run/detail/$(REGION)/$(SERVICE)/logs?project=$(PROJECT)"
+
+logtail:
+	gcloud logging read \
+		"resource.type=cloud_run_revision AND resource.labels.service_name=$(SERVICE)" \
+		--project $(PROJECT) \
+		--limit 25
+
 # Google workspace addons
 
 create-addon:
@@ -43,8 +53,7 @@ update-addon:
 		--deployment-file=addon.json
 
 describe-addon:
-	gcloud workspace-add-ons deployments describe $(ADDON) \
-		--deployment-file=addon.json
+	gcloud workspace-add-ons deployments describe $(ADDON)
 
 # Cloud build
 
