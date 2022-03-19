@@ -25,5 +25,5 @@
 !/out/.placeholder
 
 # commit encrypted secrets but nothing else in the secrets dir
-secrets/*
-!secrets/*.encrypted
+**/secrets/*
+**/!secrets/*.encrypted
