@@ -1,0 +1,9 @@
+{
+    "renderActions": {
+        "hostAppAction": {
+            "editorAction": {
+                "requestFileScopeForActiveDocument": {}
+            }
+        }
+    }
+}

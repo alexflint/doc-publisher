@@ -13,6 +13,9 @@
     "docs": {
       "homepageTrigger": {
         "runFunction": "https://doc-publisher-backend-mxh6l73c4a-uc.a.run.app/"
+      },
+      "onFileScopeGrantedTrigger": {
+        "runFunction": "https://doc-publisher-backend-mxh6l73c4a-uc.a.run.app/fileScopeGranted"
       }
     }
   }

@@ -1,0 +1,49 @@
+{
+  "action": {
+    "navigations": [
+      {
+        "pushCard": {
+          "sections": [
+            {
+              "header": "Section header",
+              "widgets": [
+                {
+                  "textParagraph": {
+                    "text": "Hello world!"
+                  }
+                },
+                {
+                  "textInput": {
+                    "name": "Document ID",
+                    "label": "Document ID",
+                    "onChangeAction": {
+                      "function": "https://doc-publisher-backend-mxh6l73c4a-uc.a.run.app/textChanged"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "fixedFooter": {
+            "primaryButton": {
+              "text": "Authorize file access",
+              "onClick": {
+                "action": {
+                  "function": "https://doc-publisher-backend-mxh6l73c4a-uc.a.run.app/requestAccess"
+                }
+              }
+            },
+            "secondaryButton": {
+              "text": "Demo",
+              "onClick": {
+                "action": {
+                  "function": "https://doc-publisher-backend-mxh6l73c4a-uc.a.run.app/demo"
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -4,11 +4,14 @@ REGION := us-central1				# the region for deployment
 ADDON := doc-publisher				# name of the Google Workspaces addon
 PROJECT := doc-publisher-341418		# google cloud project
 
-default: .bin/addon-backend
+default:
+	make image
+	make push
+	make deploy
 
 # Compilation
 
-.bin/addon-backend: *.go
+.bin/addon-backend: *.go cards/*.json
 	CGO_ENABLED=0 GOOS=linux go build -o .bin/addon-backend
 
 # Docker
@@ -28,13 +31,20 @@ deploy:
 	gcloud run deploy $(SERVICE) \
 		--image $(IMAGE) \
 		--region $(REGION) \
+		--project $(PROJECT) \
 		--platform managed
 
 status:
-	gcloud run services list --platform managed
+	gcloud run services list \
+		--project $(PROJECT) \
+		--platform managed
 
 logs:
 	xdg-open "https://console.cloud.google.com/run/detail/$(REGION)/$(SERVICE)/logs?project=$(PROJECT)"
+
+logs-for-addon:
+	echo "FYI: I have not yet gotten any logs to show up this way"
+	xdg-open "https://console.cloud.google.com/logs/query;query=protoPayload.serviceName%3D%22gsuiteaddons.googleapis.com%22%0A?project=$(PROJECT)"
 
 logtail:
 	gcloud logging read \
@@ -55,17 +65,25 @@ update-addon:
 describe-addon:
 	gcloud workspace-add-ons deployments describe $(ADDON)
 
-# Cloud build
-
-build-deploy:
-	gcloud builds submit
-
 # Secret management
+
+SECRETS := $(shell ls secrets/* | grep -v "encrypted$$")
 
 encrypt-secrets:
 	echo "Please enter the password from bitwarden under 'doc-publisher backend'..."
-	go run ../crypt/*.go --encrypt secrets/*.json
+	go run ../crypt/*.go --encrypt $(SECRETS)
 
 decrypt-secrets:
 	echo "Please enter the password from bitwarden under 'doc-publisher backend'..."
 	go run ../crypt/*.go --decrypt secrets/*.encrypted
+
+#
+# UNUSED
+#
+
+
+
+# Cloud build
+
+submit:
+	gcloud builds submit
