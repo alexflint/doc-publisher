@@ -92,10 +92,11 @@ type authError struct {
 
 const authTimeout = 10 * time.Second
 
-// Authenticate connects to the lesswrong websocket, performs
+// authenticateOld connects to the lesswrong websocket, performs
 // password-based authentication, and returns an auth token
-func Authenticate(ctx context.Context, email, password string) (*Auth, error) {
-	ctx, _ = context.WithTimeout(ctx, authTimeout)
+func authenticateOld(ctx context.Context, email, password string) (*Auth, error) {
+	ctx, cancel := context.WithTimeout(ctx, authTimeout)
+	defer cancel()
 
 	// connect to the websocket
 	ws, resp, err := websocket.DefaultDialer.DialContext(
@@ -234,5 +235,4 @@ func Authenticate(ctx context.Context, email, password string) (*Auth, error) {
 			return nil, ctx.Err()
 		}
 	}
-
 }
