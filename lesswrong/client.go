@@ -2,7 +2,6 @@ package lesswrong
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,26 +9,13 @@ import (
 	"github.com/machinebox/graphql"
 )
 
-type userResponse struct {
-	User struct {
-		Result *User
-	}
-}
-
-// User represents information about a lesswrong
-type User struct {
-	Username string
-	Email    string
-	Bio      string
-}
-
 // Client makes API calls to lesswrong
 type Client struct {
 	graphql *graphql.Client
 	auth    *Auth
 }
 
-// New creates a new client
+// NewClient authenticates with lesswrong and returns a client
 func NewClient(ctx context.Context, username, password string) (*Client, error) {
 	c := Client{
 		graphql: graphql.NewClient("https://www.lesswrong.com/graphql?"),
@@ -63,6 +49,19 @@ func (c *Client) createRequest(query string) *graphql.Request {
 	return req
 }
 
+// User represents information about a lesswrong user
+type User struct {
+	Username string
+	Email    string
+	Bio      string
+}
+
+type userContainer struct {
+	User struct {
+		Result *User
+	}
+}
+
 // User fetches information about a user
 func (c *Client) User(ctx context.Context, username string) (*User, error) {
 	// make a request
@@ -80,7 +79,7 @@ func (c *Client) User(ctx context.Context, username string) (*User, error) {
 	req.Var("username", username)
 
 	// run it and capture the response
-	var res userResponse
+	var res userContainer
 	if err := c.graphql.Run(ctx, req, &res); err != nil {
 		return nil, fmt.Errorf("error performing graphql query: %w", err)
 	}
@@ -88,17 +87,17 @@ func (c *Client) User(ctx context.Context, username string) (*User, error) {
 	return res.User.Result, nil
 }
 
-type loginResponseContainer struct {
-	Login loginResponse `json:"login"`
+type loginRequest struct {
+	Username string
+	Password string
 }
 
 type loginResponse struct {
 	Token string `json:"token"`
 }
 
-type loginRequest struct {
-	Username string
-	Password string
+type loginResponseContainer struct {
+	Login loginResponse `json:"login"`
 }
 
 // CreatePost creates a new post
@@ -118,9 +117,6 @@ func (c *Client) login(ctx context.Context, r loginRequest) (*loginResponse, err
 	if err := c.graphql.Run(ctx, req, &res); err != nil {
 		return nil, fmt.Errorf("error performing graphql query: %w", err)
 	}
-
-	log.Printf("received from lesswrong for login: %#v", res)
-
 	return &res.Login, nil
 }
 
@@ -131,10 +127,30 @@ type CreatePostRequest struct {
 	Frontpage bool
 }
 
+type CreatePostResponse struct {
+	URL string `json:"linkUrl"`
+}
+
+type createPostContainer struct {
+	CreatePost struct {
+		Data *CreatePostResponse `json:"data"`
+	} `json:"createPost"`
+}
+
+type postContents struct {
+	UpdateType       string               `json:"updateType"` // set to "minor"
+	OriginalContents postOriginalContents `json:"originalContents"`
+}
+
+type postOriginalContents struct {
+	Type string `json:"type"` // set to "markdown"
+	Data string `json:"data"` // the content of the post, in markdown
+}
+
 // CreatePost creates a new post
-func (c *Client) CreatePost(ctx context.Context, r CreatePostRequest) error {
+func (c *Client) CreatePost(ctx context.Context, r CreatePostRequest) (*CreatePostResponse, error) {
 	req := c.createRequest(`
-	mutation($title:String!, $content:String!) {
+	mutation($title:String!, $contents:JSON!) {
 		createPost(data: {
 			title: $title,
 			submitToFrontpage: true,
@@ -143,36 +159,30 @@ func (c *Client) CreatePost(ctx context.Context, r CreatePostRequest) error {
 			isEvent: false,
 			types: [],
 			moderationStyle: "easy-going",
-			contents: {
-				originalContents: {
-					type: "markdown",
-					data: $content,
-				},
-				updateType: "minor",
-			}
+			contents: $contents,
 		}) {
 			data {
-				url,
-				pageUrl,
 				linkUrl,
-				author,
-				user,
 			}
 		}
 	}`)
 
-	req.Var("title", r.Title)
-	req.Var("content", r.Content)
-
-	log.Println("CreatePost cookie:", req.Header.Get("Cookie"))
-
-	// run it and capture the response
-	var res json.RawMessage
-	if err := c.graphql.Run(ctx, req, &res); err != nil {
-		return fmt.Errorf("error performing graphql query: %w", err)
+	// The "contents" field below above is a raw JSON blob, so we have to make the whole thing a variable
+	contents := postContents{
+		UpdateType: "minor",
+		OriginalContents: postOriginalContents{
+			Type: "markdown",
+			Data: r.Content,
+		},
 	}
 
-	log.Println("received from lesswrong:", string(res))
+	req.Var("contents", contents)
+	req.Var("title", r.Title)
 
-	return nil
+	// run it and capture the response
+	var res createPostContainer
+	if err := c.graphql.Run(ctx, req, &res); err != nil {
+		return nil, fmt.Errorf("error performing graphql query: %w", err)
+	}
+	return res.CreatePost.Data, nil
 }

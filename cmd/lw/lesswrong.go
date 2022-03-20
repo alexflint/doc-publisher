@@ -30,7 +30,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = client.CreatePost(ctx, lesswrong.CreatePostRequest{
+	r, err := client.CreatePost(ctx, lesswrong.CreatePostRequest{
 		Title:   args.Title,
 		Content: args.Content,
 		Draft:   true,
@@ -40,5 +40,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("success")
+	fmt.Println("created post: " + r.URL)
 }
