@@ -33,7 +33,6 @@ func main() {
 	r, err := client.CreatePost(ctx, lesswrong.CreatePostRequest{
 		Title:   args.Title,
 		Content: args.Content,
-		Draft:   true,
 	})
 	if err != nil {
 		fmt.Printf("error creating lesswrong post: %v\n", err)

@@ -19,6 +19,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/alexflint/doc-publisher/googledoc"
 	"google.golang.org/api/docs/v1"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
@@ -71,8 +72,7 @@ func fetchGoogleDoc(ctx context.Context, args *fetchGoogleDocArgs) error {
 		return fmt.Errorf("error decoding zip archive: %w", err)
 	}
 
-	var d googleDoc
-
+	var d googledoc.Archive
 	for _, f := range ziprd.File {
 		if strings.HasSuffix(f.Name, ".html") {
 			r, err := f.Open()
@@ -97,7 +97,7 @@ func fetchGoogleDoc(ctx context.Context, args *fetchGoogleDocArgs) error {
 				return fmt.Errorf("error reading %s from zip archive: %w", f.Name, err)
 			}
 
-			d.Images = append(d.Images, &googleDocImage{
+			d.Images = append(d.Images, &googledoc.Image{
 				Filename: f.Name,
 				Content:  buf,
 			})

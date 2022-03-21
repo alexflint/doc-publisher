@@ -121,10 +121,8 @@ func (c *Client) login(ctx context.Context, r loginRequest) (*loginResponse, err
 }
 
 type CreatePostRequest struct {
-	Title     string
-	Content   string // markdown
-	Draft     bool
-	Frontpage bool
+	Title   string // title of the post
+	Content string // markdown-formatted post contents
 }
 
 type CreatePostResponse struct {
