@@ -9,13 +9,23 @@ import (
 	"log"
 	"net/http"
 
+	"cloud.google.com/go/storage"
+	"github.com/alexflint/doc-publisher/googledoc"
+	"github.com/alexflint/doc-publisher/lesswrong"
+	"github.com/alexflint/doc-publisher/markdown"
 	"github.com/alexflint/go-arg"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/docs/v1"
-	"google.golang.org/api/drive/v2"
+	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 )
+
+//go:embed secrets/storage_service_account.json
+var storageServiceAccount []byte
+
+//go:embed secrets/lesswrong-password.txt
+var lesswrongPassword string
 
 //go:embed cards/root.json
 var rootCard []byte
@@ -192,42 +202,69 @@ func tryStuff(ctx context.Context, payload *workspacePayload) error {
 
 	docID := "1Wsar2ajCKHBA8OlSPUe1SnPWg7kalV-4AfK-Hrk_rN8"
 
-	// create the drive client
-	driveClient, err := drive.NewService(ctx,
-		//option.WithTokenSource(creds.TokenSource),
-		option.WithCredentials(&creds),
-		option.WithScopes(docs.DriveFileScope))
-
-	if err != nil {
-		return fmt.Errorf("error creating drive client: %w", err)
-	}
-
-	// export the document as a zip arcive
-	log.Printf("attempting to export %q", docID)
-	_, err = driveClient.Files.Export(docID, "application/zip").Download()
-	if err == nil {
-		log.Println("exported the zip file!")
-	} else {
-		log.Println("error exporting zip file: ", err)
-	}
-
 	// create the docs client
 	docsClient, err := docs.NewService(ctx,
-		//option.WithTokenSource(creds.TokenSource),
 		option.WithCredentials(&creds),
 		option.WithScopes(docs.DriveFileScope))
 	if err != nil {
-		log.Fatalln("error creating docs client: ", err)
+		return fmt.Errorf("error creating docs client")
 	}
 
-	// fetch the document
-	log.Printf("attempting to fetch %q", docID)
-	_, err = docsClient.Documents.Get(docID).Do()
-	if err == nil {
-		log.Println("fetched the doc")
-	} else {
-		log.Println("error fetching doc: ", err)
+	// create the drive client
+	driveClient, err := drive.NewService(ctx,
+		option.WithCredentials(&creds),
+		option.WithScopes(docs.DriveFileScope))
+	if err != nil {
+		return fmt.Errorf("error creating drive client")
 	}
+
+	// fetch the google doc
+	d, err := googledoc.Fetch(ctx, docID, docsClient, driveClient)
+	if err != nil {
+		return fmt.Errorf("error fetching google doc: %w", err)
+	}
+
+	// create a cloud storage client
+	storageClient, err := storage.NewClient(ctx,
+		option.WithCredentialsJSON(storageServiceAccount))
+	if err != nil {
+		return fmt.Errorf("error creating cloud storage client")
+	}
+
+	// upload images
+	imageURLs, err := googledoc.UploadImages(ctx, d.Images, storageClient.Bucket("doc-publisher-images"))
+	if err != nil {
+		return fmt.Errorf("error uploading images: %w", err)
+	}
+
+	// match image URLs to object IDs
+	imageURLsByObjectID, err := googledoc.MatchObjectIDsToImages(d, imageURLs)
+	if err != nil {
+		return fmt.Errorf("error matching image URLs to object IDs: %w", err)
+	}
+
+	// convert to markdown
+	md, err := markdown.FromGoogleDoc(d.Doc, imageURLsByObjectID)
+	if err != nil {
+		return fmt.Errorf("error converting google doc to markdown: %w", err)
+	}
+
+	// create the lesswrong client
+	lw, err := lesswrong.NewClient(ctx, "alex.flint@gmail.com", lesswrongPassword)
+	if err != nil {
+		return fmt.Errorf("error authenticating with lesswrong: %w", err)
+	}
+
+	// create the post
+	resp, err := lw.CreatePost(ctx, lesswrong.CreatePostRequest{
+		Title:   "brand new post",
+		Content: md,
+	})
+	if err != nil {
+		return fmt.Errorf("error creating lesswrong post: %w", err)
+	}
+
+	log.Println("created lesswrong post: " + resp.URL)
 
 	return nil
 }

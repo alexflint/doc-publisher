@@ -23,8 +23,8 @@ type Image struct {
 	Content  []byte
 }
 
-// ReadGoogleDoc reads a .googledoc file containing a gzipped googleDoc struct
-func Load(path string) (*Archive, error) {
+// ReadFile reads a .googledoc file
+func ReadFile(path string) (*Archive, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("error opening input file: %w", err)
@@ -45,4 +45,27 @@ func Load(path string) (*Archive, error) {
 		return nil, fmt.Errorf("document was nil in decoded structure")
 	}
 	return &d, nil
+}
+
+// WriteFile writes a google doc to a .googledoc file
+func WriteFile(d *Archive, path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("error opening output file for writing: %w", err)
+	}
+	defer f.Close()
+
+	wr := gzip.NewWriter(f)
+	defer wr.Close()
+
+	err = gob.NewEncoder(wr).Encode(d)
+	if err != nil {
+		return fmt.Errorf("error encoding document as gob: %w", err)
+	}
+
+	err = wr.Flush()
+	if err != nil {
+		return fmt.Errorf("error encoding document as zip: %w", err)
+	}
+	return nil
 }

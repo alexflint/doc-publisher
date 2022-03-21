@@ -19,7 +19,7 @@ type exportLatexArgs struct {
 
 func exportLatex(ctx context.Context, args *exportLatexArgs) error {
 	// load the input document
-	_, err := googledoc.Load(args.Input)
+	_, err := googledoc.ReadFile(args.Input)
 	if err != nil {
 		return err
 	}

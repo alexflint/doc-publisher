@@ -27,7 +27,7 @@ type exportMarkdownArgs struct {
 
 func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 	// load the document from a file
-	d, err := googledoc.Load(args.Input)
+	d, err := googledoc.ReadFile(args.Input)
 	if err != nil {
 		return err
 	}
