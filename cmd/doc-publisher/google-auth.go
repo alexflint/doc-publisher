@@ -18,10 +18,10 @@ var oauthCredentials []byte
 // Retrieves a token from a local file.
 func tokenFromFile(file string) (*oauth2.Token, error) {
 	f, err := os.Open(file)
-	defer f.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 
 	var tok oauth2.Token
 	err = json.NewDecoder(f).Decode(&tok)
@@ -35,10 +35,10 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 // Saves a token to a file path.
 func saveToken(path string, token *oauth2.Token) error {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	defer f.Close()
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 
 	return json.NewEncoder(f).Encode(token)
 }
