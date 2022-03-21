@@ -26,4 +26,4 @@
 
 # commit encrypted secrets but nothing else in the secrets dir
 **/secrets/*
-**/!secrets/*.encrypted
+!**/secrets/*.encrypted
