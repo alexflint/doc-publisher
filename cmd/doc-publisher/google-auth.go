@@ -2,15 +2,18 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	"github.com/pkg/browser"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
+
+//go:embed secrets/oauth_credentials.json
+var oauthCredentials []byte
 
 // Retrieves a token from a local file.
 func tokenFromFile(file string) (*oauth2.Token, error) {
@@ -77,13 +80,7 @@ func (ts googleTokenSource) Token() (*oauth2.Token, error) {
 
 // GoogleAuth authenticates with Google using oauth
 func GoogleAuth(ctx context.Context, tokFile string, scopes ...string) (oauth2.TokenSource, error) {
-	// get oauth credentials
-	b, err := ioutil.ReadFile("secrets/oauth_credentials.json")
-	if err != nil {
-		return nil, fmt.Errorf("unable to read client secret file: %w", err)
-	}
-
-	config, err := google.ConfigFromJSON(b, scopes...)
+	config, err := google.ConfigFromJSON(oauthCredentials, scopes...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse client secret file to config: %w", err)
 	}

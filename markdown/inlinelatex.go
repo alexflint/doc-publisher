@@ -39,7 +39,7 @@ func splitSpace(s string) (left, middle, right string) {
 	return
 }
 
-// fixLatexSymbol changes \T1 to \Tone and so forth
+// fixLatexSymbol changes \T1 to \Tone and so forth, because latex does not permit numbers in symbols
 func fixLatexSymbol(s string) string {
 	s = strings.ReplaceAll(s, "0", "zero")
 	s = strings.ReplaceAll(s, "1", "one")

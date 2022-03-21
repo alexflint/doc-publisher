@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -14,6 +15,9 @@ import (
 	"google.golang.org/api/docs/v1"
 	"google.golang.org/api/option"
 )
+
+//go:embed secrets/storage_service_account.json
+var storageServiceAccount []byte
 
 type exportMarkdownArgs struct {
 	Input      string `arg:"positional"`
@@ -31,7 +35,7 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 
 	// create a cloud storage client
 	storageClient, err := storage.NewClient(ctx,
-		option.WithCredentialsFile("secrets/service_account.json"))
+		option.WithCredentialsJSON(storageServiceAccount))
 	if err != nil {
 		return fmt.Errorf("error creating storage client: %w", err)
 	}
