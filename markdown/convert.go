@@ -59,14 +59,14 @@ func FromGoogleDocSegment(doc *docs.Document, elements []*docs.StructuralElement
 		fmt.Fprint(&markdown, "\n") // make sure there is an empty line between each footnote
 	}
 
-	var final strings.Builder
-	final.Grow(markdown.Len())
+	var out strings.Builder
+	out.Grow(markdown.Len())
 
 	// first put the latex header in
 	if conv.latexDefs.Len() > 0 {
-		final.WriteString("$$\n")
-		conv.latexDefs.WriteTo(&final)
-		final.WriteString("$$\n\n")
+		out.WriteString("$$\n")
+		conv.latexDefs.WriteTo(&out)
+		out.WriteString("$$\n\n")
 	}
 
 	// apply post-processing
@@ -79,7 +79,7 @@ func FromGoogleDocSegment(doc *docs.Document, elements []*docs.StructuralElement
 		if len(line) == 0 {
 			emptylines++
 			if emptylines < 2 {
-				final.WriteRune('\n')
+				out.WriteRune('\n')
 			}
 			continue
 		}
@@ -91,10 +91,10 @@ func FromGoogleDocSegment(doc *docs.Document, elements []*docs.StructuralElement
 			line = strings.ReplaceAll(line, from, to)
 		}
 
-		final.WriteString(line + "\n")
+		out.WriteString(line + "\n")
 	}
 
-	return final.String(), nil
+	return out.String(), nil
 }
 
 type markdownConverter struct {

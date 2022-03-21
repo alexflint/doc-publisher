@@ -1,5 +1,7 @@
 package markdown
 
+// This file contains utilities for generating inline latex within markdown
+
 import (
 	"strings"
 	"unicode"
