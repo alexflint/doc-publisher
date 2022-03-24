@@ -56,14 +56,17 @@ logtail:
 
 create-addon:
 	gcloud workspace-add-ons deployments create $(ADDON) \
-		--deployment-file=addon.json
+		--deployment-file=addon.json \
+		--project $(PROJECT)
 
 update-addon:
 	gcloud workspace-add-ons deployments replace $(ADDON) \
-		--deployment-file=addon.json
+		--deployment-file=addon.json \
+		--project $(PROJECT)
 
 describe-addon:
-	gcloud workspace-add-ons deployments describe $(ADDON)
+	gcloud workspace-add-ons deployments describe $(ADDON) \
+		--project $(PROJECT)
 
 # Secret management
 
