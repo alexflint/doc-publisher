@@ -8,7 +8,7 @@
   "addOns": {
     "common": {
       "name": "Document Publisher",
-      "logoUrl": "https://raw.githubusercontent.com/webdog/octicons-png/main/black/check.png"
+      "logoUrl": "https://raw.githubusercontent.com/webdog/octicons-png/main/black/cloud-upload.png"
     },
     "docs": {
       "homepageTrigger": {
