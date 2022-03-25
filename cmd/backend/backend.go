@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -9,16 +8,10 @@ import (
 	"log"
 	"net/http"
 
-	"cloud.google.com/go/storage"
-	"github.com/alexflint/doc-publisher/googledoc"
-	"github.com/alexflint/doc-publisher/lesswrong"
-	"github.com/alexflint/doc-publisher/markdown"
+	"github.com/alexflint/doc-publisher/ui"
 	"github.com/alexflint/go-arg"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/docs/v1"
-	"google.golang.org/api/drive/v3"
-	"google.golang.org/api/option"
 )
 
 //go:embed secrets/storage_service_account.json
@@ -42,15 +35,20 @@ var accessGranted []byte
 //go:embed cards/textChanged.json
 var textChanged []byte
 
-// represents the JSON payload sent to us by Google Workspace
-type workspaceAuthorization struct {
-	UserIdToken    string            `json:"userIdToken"`
-	UserOAuthToken string            `json:"userOAuthToken"`
-	Docs           *docsEventObject  `json:"docs"`
-	Drive          *driveEventObject `json:"drive"`
+// workspacePayload models the JSON payload sent to our endpoints by Google Workspaces
+type workspacePayload struct {
+	Authorization workspaceAuthorization `json:"authorizationEventObject"`
+	Common        commonEventObject      `json:"commonEventObject"`
 }
 
-// Info about the active document, sent to us by Google Workspace
+// workspaceAuthorization is how Google Workspaces gives us the authentication tokens
+type workspaceAuthorization struct {
+	UserIdToken    string           `json:"userIdToken"`
+	UserOAuthToken string           `json:"userOAuthToken"`
+	Docs           *docsEventObject `json:"docs"`
+}
+
+// docsEventObject identifies the Google Doc that the user is working with
 // See https://developers.google.com/apps-script/add-ons/concepts/event-objects#docs_event_object
 type docsEventObject struct {
 	ID           string `json:"id"`
@@ -58,19 +56,7 @@ type docsEventObject struct {
 	HasFileScope bool   `json:"addonHasFileScopePermission"`
 }
 
-// Info about the active file
-// See https://developers.google.com/apps-script/add-ons/concepts/event-objects#docs_event_object
-type driveEventObject struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	HasFileScope bool   `json:"addonHasFileScopePermission"`
-}
-
-type workspacePayload struct {
-	Authorization workspaceAuthorization `json:"authorizationEventObject"`
-	Common        commonEventObject      `json:"commonEventObject"`
-}
-
+// commonEventObject identifies the host, the platform, and any form inputs provided by the user
 type commonEventObject struct {
 	HostApp    string               `json:"hostApp"`  // "DOCS", "GMAIL", "CALENDAR"
 	Platform   string               `json:"platform"` // "WEB"
@@ -88,6 +74,76 @@ type formInput struct {
 // than one element.
 type stringInputs struct {
 	Value []string `json:"value"`
+}
+
+// invoked when the user clicks "publish"
+func handlePublish(w http.ResponseWriter, r *http.Request) {
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "error reading request body", http.StatusInternalServerError)
+		log.Printf("error reading request body: %v", err)
+		return
+	}
+
+	log.Println("received at root: ", string(body))
+
+	var payload workspacePayload
+	err = json.Unmarshal(body, &payload)
+	if err != nil {
+		http.Error(w, "error parsing body as JSON", http.StatusBadRequest)
+		log.Printf("error parsing body as JSON: %v", err)
+		return
+	}
+
+	// get the lesswrong ID for this post
+	//   get the user ID
+	//   get the document ID
+	//   form a key
+	//   look up record in datastore
+	// create or update the lesswrong post
+
+	creds := google.Credentials{
+		ProjectID: "doc-publisher-341418",
+		TokenSource: oauth2.StaticTokenSource(&oauth2.Token{
+			AccessToken: payload.Authorization.UserOAuthToken,
+		}),
+	}
+
+	// get the document ID
+	if payload.Authorization.Docs == nil {
+		log.Println("no document ID was provided")
+		http.Error(w, "no document ID was provided", http.StatusBadRequest)
+		return
+	}
+	docID := payload.Authorization.Docs.ID
+	if docID == "" {
+		log.Println("document ID was provided but was empty")
+		http.Error(w, "document ID was provided but was empty", http.StatusBadRequest)
+		return
+	}
+
+	// publish the document
+	result, err := publish(r.Context(), &creds, docID, "")
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "error publishing document: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// tell the addon UI to open the new lesswrong post in the user's browser
+	response := ui.Response{
+		RenderActions: &ui.RenderActions{
+			Action: &ui.Action{
+				Link: &ui.OpenLink{
+					URL: result.URL,
+				},
+			},
+		},
+	}
+
+	// success
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // invoked when the user edits the "document ID" textbox in the root card
@@ -110,7 +166,7 @@ func handleTextChanged(w http.ResponseWriter, r *http.Request) {
 
 	if x, ok := payload.Common.FormInputs["Document ID"]; ok && len(x.StringInputs.Value) == 1 {
 		docID := x.StringInputs.Value[0]
-		log.Println("##### textChanged received document ID: " + docID)
+		_ = docID
 	}
 
 	log.Println("received at textChanged: ", string(body))
@@ -165,6 +221,7 @@ func handleDemo(w http.ResponseWriter, r *http.Request) {
 	w.Write(demoCard)
 }
 
+// handleRoot is called when the addon is initialized. It renders the top-level card.
 func handleRoot(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -175,98 +232,8 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("received at root: ", string(body))
 
-	var payload workspacePayload
-	err = json.Unmarshal(body, &payload)
-	if err != nil {
-		http.Error(w, "error parsing body as JSON", http.StatusBadRequest)
-		log.Printf("error parsing body as JSON: %v", err)
-		return
-	}
-
-	err = tryStuff(r.Context(), &payload)
-	if err != nil {
-		log.Println(err)
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(rootCard)
-}
-
-func tryStuff(ctx context.Context, payload *workspacePayload) error {
-	creds := google.Credentials{
-		ProjectID: "doc-publisher-341418",
-		TokenSource: oauth2.StaticTokenSource(&oauth2.Token{
-			AccessToken: payload.Authorization.UserOAuthToken,
-		}),
-	}
-
-	docID := "1Wsar2ajCKHBA8OlSPUe1SnPWg7kalV-4AfK-Hrk_rN8"
-
-	// create the docs client
-	docsClient, err := docs.NewService(ctx,
-		option.WithCredentials(&creds),
-		option.WithScopes(docs.DriveFileScope))
-	if err != nil {
-		return fmt.Errorf("error creating docs client")
-	}
-
-	// create the drive client
-	driveClient, err := drive.NewService(ctx,
-		option.WithCredentials(&creds),
-		option.WithScopes(docs.DriveFileScope))
-	if err != nil {
-		return fmt.Errorf("error creating drive client")
-	}
-
-	// fetch the google doc
-	d, err := googledoc.Fetch(ctx, docID, docsClient, driveClient)
-	if err != nil {
-		return fmt.Errorf("error fetching google doc: %w", err)
-	}
-
-	// create a cloud storage client
-	storageClient, err := storage.NewClient(ctx,
-		option.WithCredentialsJSON(storageServiceAccount))
-	if err != nil {
-		return fmt.Errorf("error creating cloud storage client")
-	}
-
-	// upload images
-	imageURLs, err := googledoc.UploadImages(ctx, d.Images, storageClient.Bucket("doc-publisher-images"))
-	if err != nil {
-		return fmt.Errorf("error uploading images: %w", err)
-	}
-
-	// match image URLs to object IDs
-	imageURLsByObjectID, err := googledoc.MatchObjectIDsToImages(d, imageURLs)
-	if err != nil {
-		return fmt.Errorf("error matching image URLs to object IDs: %w", err)
-	}
-
-	// convert to markdown
-	md, err := markdown.FromGoogleDoc(d.Doc, imageURLsByObjectID)
-	if err != nil {
-		return fmt.Errorf("error converting google doc to markdown: %w", err)
-	}
-
-	// create the lesswrong client
-	lw, err := lesswrong.NewClient(ctx, "alex.flint@gmail.com", lesswrongPassword)
-	if err != nil {
-		return fmt.Errorf("error authenticating with lesswrong: %w", err)
-	}
-
-	// create the post
-	resp, err := lw.CreatePost(ctx, lesswrong.CreatePostRequest{
-		Title:   "brand new post",
-		Content: md,
-	})
-	if err != nil {
-		return fmt.Errorf("error creating lesswrong post: %w", err)
-	}
-
-	log.Println("created lesswrong post: " + resp.URL)
-
-	return nil
 }
 
 func main() {
@@ -279,6 +246,7 @@ func main() {
 	http.Handle("/accessGranted", http.HandlerFunc(handleAccessGranted))
 	http.Handle("/requestAccess", http.HandlerFunc(handleRequestAccess))
 	http.Handle("/demo", http.HandlerFunc(handleDemo))
+	http.Handle("/publish", http.HandlerFunc(handlePublish))
 	http.Handle("/", http.HandlerFunc(handleRoot))
 
 	// we must add the colon ourselves because Cloud Run will give us an integer port

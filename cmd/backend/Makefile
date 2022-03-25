@@ -11,12 +11,12 @@ default:
 
 # Compilation
 
-.bin/addon-backend: *.go cards/*.json
-	CGO_ENABLED=0 GOOS=linux go build -o .bin/addon-backend
+.bin: *.go cards/*.json
+	CGO_ENABLED=0 GOOS=linux go build -o .bin
 
 # Docker
 
-image: .bin/addon-backend
+image: .bin
 	docker build . -t $(IMAGE)
 
 push:
@@ -80,13 +80,17 @@ decrypt-secrets:
 	echo "Please enter the password from bitwarden under 'doc-publisher backend'..."
 	go run ../crypt/*.go --decrypt secrets/*.encrypted
 
-#
-# UNUSED
-#
-
-
+# I switch to cloud build because I was on a slow internet connection and it was
+# faster to upload the source to cloud build and push the docker image from there
 
 # Cloud build
 
+# Notes:
+# - we must include the full source tree, so we submit dir "../.."
+# - we wish to ignore 
+
 submit:
-	gcloud builds submit
+	gcloud builds submit ../.. \
+		--config cloudbuild.yaml \
+		--project $(PROJECT) \
+		--substitutions _SERVICE=$(strip $(SERVICE)),_REGION=$(strip $(REGION))

@@ -8,8 +8,17 @@
               "header": "Section header",
               "widgets": [
                 {
-                  "textParagraph": {
-                    "text": "Hello world!"
+                  "buttonList": {
+                    "buttons": [
+                      {
+                        "text": "Publish",
+                        "onClick": {
+                          "action": {
+                            "function": "https://doc-publisher-backend-mxh6l73c4a-uc.a.run.app/publish"
+                          }
+                        }
+                      }
+                    ]
                   }
                 },
                 {
@@ -26,7 +35,7 @@
           ],
           "fixedFooter": {
             "primaryButton": {
-              "text": "Authorize file access",
+              "text": "Authorize",
               "onClick": {
                 "action": {
                   "function": "https://doc-publisher-backend-mxh6l73c4a-uc.a.run.app/requestAccess"

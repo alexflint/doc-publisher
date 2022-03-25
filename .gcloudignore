@@ -1,0 +1,12 @@
+# This file tells gcloud which files to ignore when uploading
+# jobs for cloud build. The syntax is just like .gitignore except
+# for the special #!include directive, which includes another file.
+
+# Ignore the .git dir, which is not explicitly listed in .gitignore.
+.git
+
+# Ignore everything that is ignored in .gitignore
+#!include:.gitignore
+
+# Do not ignore secrets (still need these for build)
+!**/secrets/**

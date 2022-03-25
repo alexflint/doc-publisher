@@ -15,9 +15,9 @@
 # vendor/
 
 /oauth_credentials.json
-/doc-publisher
 /scratch/
 /.cache/
+.bin
 
 # Ignore files in out but do not ignore the placeholder, which
 # guarantees that we get this dir when we "git clone"

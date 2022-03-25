@@ -3,7 +3,6 @@ package lesswrong
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/machinebox/graphql"
@@ -21,11 +20,11 @@ func NewClient(ctx context.Context, username, password string) (*Client, error) 
 		graphql: graphql.NewClient("https://www.lesswrong.com/graphql?"),
 	}
 
-	c.graphql.Log = func(s string) {
-		log.Println("graphql said: ", s)
-	}
+	// c.graphql.Log = func(s string) {
+	// 	log.Println("graphql said: ", s)
+	// }
 
-	loginResp, err := c.login(ctx, loginRequest{
+	r, err := c.login(ctx, loginRequest{
 		Username: username,
 		Password: password,
 	})
@@ -33,8 +32,7 @@ func NewClient(ctx context.Context, username, password string) (*Client, error) 
 		return nil, fmt.Errorf("lesswrong authentication failed: %w", err)
 	}
 
-	log.Println("lesswrong login token: ", loginResp.Token)
-	c.auth = &Auth{Token: loginResp.Token}
+	c.auth = &Auth{Token: r.Token}
 
 	return &c, nil
 }
@@ -43,7 +41,6 @@ func (c *Client) createRequest(query string) *graphql.Request {
 	req := graphql.NewRequest(query)
 	if c.auth != nil {
 		ck := http.Cookie{Name: "loginToken", Value: c.auth.Token}
-		log.Println("setting cookie: ", ck.String())
 		req.Header.Set("Cookie", ck.String()+";")
 	}
 	return req

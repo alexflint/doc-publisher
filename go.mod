@@ -16,9 +16,9 @@ require (
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pquerna/cachecontrol v0.1.0 // indirect
+	github.com/rs/zerolog v1.26.1 // indirect
 	github.com/stretchr/testify v1.7.0
-	golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550
-	golang.org/x/net v0.0.0-20200602114024-627f9648deb9 // indirect
+	golang.org/x/crypto v0.0.0-20211215165025-cf75a172585e
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d
 	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
 	google.golang.org/api v0.26.0
