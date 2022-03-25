@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
+	"os"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/alexflint/doc-publisher/ui"
 	"github.com/alexflint/go-arg"
@@ -81,17 +84,17 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "error reading request body", http.StatusInternalServerError)
-		log.Printf("error reading request body: %v", err)
+		log.Err(err).Msg("error reading request body")
 		return
 	}
 
-	log.Println("received at root: ", string(body))
+	log.Print("received at root: ", string(body))
 
 	var payload workspacePayload
 	err = json.Unmarshal(body, &payload)
 	if err != nil {
 		http.Error(w, "error parsing body as JSON", http.StatusBadRequest)
-		log.Printf("error parsing body as JSON: %v", err)
+		log.Err(err).Msg("error parsing body as JSON")
 		return
 	}
 
@@ -111,13 +114,13 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 
 	// get the document ID
 	if payload.Authorization.Docs == nil {
-		log.Println("no document ID was provided")
+		log.Print("no document ID was provided")
 		http.Error(w, "no document ID was provided", http.StatusBadRequest)
 		return
 	}
 	docID := payload.Authorization.Docs.ID
 	if docID == "" {
-		log.Println("document ID was provided but was empty")
+		log.Print("document ID was provided but was empty")
 		http.Error(w, "document ID was provided but was empty", http.StatusBadRequest)
 		return
 	}
@@ -125,7 +128,7 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 	// publish the document
 	result, err := publish(r.Context(), &creds, docID, "")
 	if err != nil {
-		log.Println(err)
+		log.Err(err).Msg("error publishing document to lesswrong")
 		http.Error(w, "error publishing document: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -169,7 +172,7 @@ func handleTextChanged(w http.ResponseWriter, r *http.Request) {
 		_ = docID
 	}
 
-	log.Println("received at textChanged: ", string(body))
+	log.Print("received at textChanged: ", string(body))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(textChanged)
@@ -185,7 +188,7 @@ func handleRequestAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println("received at requestAccess: ", string(body))
+	log.Print("received at requestAccess: ", string(body))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(requestAccess)
@@ -201,7 +204,7 @@ func handleAccessGranted(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println("received at accessGranted: ", string(body))
+	log.Print("received at accessGranted: ", string(body))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(accessGranted)
@@ -215,7 +218,7 @@ func handleDemo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println("received at demo: ", string(body))
+	log.Print("received at demo: ", string(body))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(demoCard)
@@ -230,7 +233,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println("received at root: ", string(body))
+	log.Print("received at root: ", string(body))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(rootCard)
@@ -238,9 +241,14 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	var args struct {
-		Port int `arg:"positional,env:PORT" default:"8000"` // this will not contain a leading colon due to Cloud Run API
+		PrettyLogs bool `help:"human-readable logs for local testing"`
+		Port       int  `arg:"positional,env:PORT" default:"8000"` // this will not contain a leading colon due to Cloud Run API
 	}
 	arg.MustParse(&args)
+
+	if args.PrettyLogs {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	}
 
 	http.Handle("/textChanged", http.HandlerFunc(handleTextChanged))
 	http.Handle("/accessGranted", http.HandlerFunc(handleAccessGranted))
@@ -251,10 +259,10 @@ func main() {
 
 	// we must add the colon ourselves because Cloud Run will give us an integer port
 	port := fmt.Sprintf(":%d", args.Port)
-	log.Println("listening on " + port)
+	log.Print("listening on " + port)
 
 	err := http.ListenAndServe(port, nil)
 	if err != nil {
-		log.Println(err)
+		log.Err(err).Msg("http.ListenAndServe returned with error")
 	}
 }
