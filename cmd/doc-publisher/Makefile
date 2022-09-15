@@ -17,7 +17,6 @@ setup:
 
 
 # Secret encryption and decryption
-
 encrypt-secrets:
 	echo "Please enter the password from lastpass under 'doc-publisher secrets'..."
 	go run ./cmd/crypt/*.go --encrypt secrets/*.json
