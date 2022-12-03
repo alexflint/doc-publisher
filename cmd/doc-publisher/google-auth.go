@@ -74,7 +74,7 @@ func (ts googleTokenSource) Token() (*oauth2.Token, error) {
 
 			query := r.URL.Query()
 			authCode = query.Get("code")
-			fmt.Fprintf(w, "doc-publisher is authenticated. You may now close this page and return to the terminal.")
+			fmt.Fprintf(w, "Authenticated. You may now close this page and return to the terminal.")
 
 			// now gracefully shutdown the server -- server.Serve below will return immediately
 			go server.Shutdown(context.Background())
