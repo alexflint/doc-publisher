@@ -20,6 +20,7 @@ type exportArgs struct {
 type pushArgs struct {
 	LessWrong *pushToLesswrongArgs `arg:"subcommand"`
 	GoogleDoc *pushGoogleDocArgs   `arg:"subcommand"`
+	Image     *pushImageArgs       `arg:"subcommand"`
 }
 
 type args struct {
@@ -61,6 +62,8 @@ func main() {
 			err = pushToLesswrong(ctx, args.Push.LessWrong)
 		case args.Push.GoogleDoc != nil:
 			err = pushGoogleDoc(ctx, args.Push.GoogleDoc)
+		case args.Push.Image != nil:
+			err = pushImage(ctx, args.Push.Image)
 		default:
 			p.Fail("push requires a subcommand")
 		}

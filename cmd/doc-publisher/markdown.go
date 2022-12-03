@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,9 +16,6 @@ import (
 	"google.golang.org/api/docs/v1"
 	"google.golang.org/api/option"
 )
-
-//go:embed secrets/storage_service_account.json
-var storageServiceAccount []byte
 
 type exportMarkdownArgs struct {
 	Input      string `arg:"positional"`
@@ -40,12 +38,22 @@ func exportMarkdown(ctx context.Context, args *exportMarkdownArgs) error {
 		return fmt.Errorf("error creating storage client: %w", err)
 	}
 
-	imageBucket := storageClient.Bucket("doc-publisher-images")
+	bucket := storageClient.Bucket(imageBucket)
 
-	// upload the images
-	urls, err := googledoc.UploadImages(ctx, d.Images, imageBucket)
-	if err != nil {
-		return err
+	// upload the images to cloud storage
+	var urls []string
+	for _, image := range d.Images {
+		extension := filepath.Ext(image.Filename)
+		if extension == "" {
+			extension = ".jpg"
+		}
+
+		url, err := uploadImage(ctx, bucket, extension, image.Content)
+		if err != nil {
+			return fmt.Errorf("%s: %w", image.Filename, err)
+		}
+
+		urls = append(urls, url)
 	}
 
 	// align the image URLs to the objects in the google doc

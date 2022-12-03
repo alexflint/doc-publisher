@@ -1,52 +1,12 @@
 package googledoc
 
 import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"path/filepath"
 	"regexp"
-
-	"cloud.google.com/go/storage"
 )
 
 // regular expression for finding image references in HTML-exported google docs
 var imageRegexp = regexp.MustCompile(`images\/image\d+\.(png|jpg)`)
-
-// UploadImages uploads a set of images to cloud storage and returns a URL for each one
-func UploadImages(ctx context.Context, images []*Image, bucket *storage.BucketHandle) ([]string, error) {
-	// upload each image to cloud storage
-	var urls []string
-	for _, image := range images {
-		extension := filepath.Ext(image.Filename)
-		if extension == "" {
-			extension = ".jpg"
-		}
-
-		// use a hash of the image content as the filename
-		hash := sha256.Sum256(image.Content)
-		hexhash := hex.EncodeToString(hash[:8]) // we just take the first 8 bytes for brevity
-		name := hexhash + extension
-		obj := bucket.Object(name)
-
-		wr := obj.NewWriter(ctx)
-		defer wr.Close()
-
-		_, err := wr.Write(image.Content)
-		if err != nil {
-			return nil, fmt.Errorf("error writing %s to cloud storage: %w", image.Filename, err)
-		}
-		err = wr.Close()
-		if err != nil {
-			return nil, fmt.Errorf("error writing %s to cloud storage: %w", image.Filename, err)
-		}
-
-		// store the URL in the map
-		urls = append(urls, fmt.Sprintf("https://storage.googleapis.com/%s/%s", obj.BucketName(), obj.ObjectName()))
-	}
-	return urls, nil
-}
 
 // MatchOBjectIDsToImages creates a map from Google Doc object IDs to the URL of the corresponding image
 func MatchObjectIDsToImages(d *Archive, imageURLs []string) (map[string]string, error) {
