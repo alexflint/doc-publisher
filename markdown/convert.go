@@ -109,17 +109,20 @@ type markdownConverter struct {
 func (dc *markdownConverter) process(out *bytes.Buffer, content []*docs.StructuralElement) error {
 	// walk the document
 	for _, elem := range content {
+		// for any element other than paragraph, write the closing markdown for any open code block
+		if elem.Paragraph == nil {
+			dc.flushCodeBlock(out)
+		}
+
 		switch {
 		case elem.Table != nil:
-			// TODO: implement
-			dc.flushCodeBlock(out)
-			log.Println("warning: ignoring table")
+			err := dc.processTable(out, elem.Table)
+			if err != nil {
+				return err
+			}
 		case elem.TableOfContents != nil:
-			// TODO: implement
-			dc.flushCodeBlock(out)
 			log.Println("warning: ignoring table of contents")
 		case elem.SectionBreak != nil:
-			dc.flushCodeBlock(out)
 			log.Println("warning: ignoring section break")
 		case elem.Paragraph != nil:
 			err := dc.processParagraph(out, elem.Paragraph)
@@ -241,16 +244,7 @@ func (dc *markdownConverter) processParagraph(out *bytes.Buffer, p *docs.Paragra
 		case el.FootnoteReference != nil:
 			fmt.Fprintf(out, "[^%s]", el.FootnoteReference.FootnoteId)
 			// add this footnote ID if it is not already in the list
-			var found bool
-			for _, f := range dc.footnotes {
-				if f == el.FootnoteReference.FootnoteId {
-					found = true
-					break
-				}
-			}
-			if !found {
-				dc.footnotes = append(dc.footnotes, el.FootnoteReference.FootnoteId)
-			}
+			dc.addFootnoteID(el.FootnoteReference.FootnoteId)
 		case el.AutoText != nil:
 			log.Println("warning: ignoring auto text")
 		case el.HorizontalRule != nil:
@@ -275,6 +269,20 @@ func (dc *markdownConverter) processParagraph(out *bytes.Buffer, p *docs.Paragra
 	// write two newlines at the end of each paragraph
 	fmt.Fprint(out, "\n\n")
 	return nil
+}
+
+// add a footnote ID if it is not already in the list (so that we know the order in which footnotes appeared in the text)
+func (dc *markdownConverter) addFootnoteID(id string) {
+	var found bool
+	for _, f := range dc.footnotes {
+		if f == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		dc.footnotes = append(dc.footnotes, id)
+	}
 }
 
 func (dc *markdownConverter) processInlineObject(out *bytes.Buffer, objRef *docs.InlineObjectElement) error {
@@ -417,6 +425,140 @@ func (dc *markdownConverter) processLine(out *bytes.Buffer, line string) error {
 
 	if inLatex {
 		out.WriteString("$")
+	}
+
+	return nil
+}
+
+// processTable writes a table to markdown
+func (dc *markdownConverter) processTable(out *bytes.Buffer, t *docs.Table) error {
+	for i, row := range t.TableRows {
+		fmt.Fprint(out, "| ")
+		for _, cell := range row.TableCells {
+			for _, e := range cell.Content {
+				if e.Paragraph == nil {
+					log.Println("warning: table cell contained a non-paragraph structural element, ignoring")
+					continue
+				}
+
+				err := dc.processParagraphInTableCell(out, e.Paragraph)
+				if err != nil {
+					return err
+				}
+			}
+			fmt.Fprint(out, " | ")
+		}
+		fmt.Fprint(out, "\n")
+
+		// Under the first table row is a line like this: "| --- | --- | --- |"
+		if i == 0 && len(t.TableRows) > 1 {
+			for _ = range row.TableCells {
+				fmt.Fprint(out, "| --- ")
+			}
+			fmt.Fprint(out, "|\n")
+		}
+	}
+
+	return nil
+}
+
+// inside table cells there is a much more restricted set of formatting that we can implement in markdown
+func (dc *markdownConverter) processParagraphInTableCell(out *bytes.Buffer, p *docs.Paragraph) error {
+	// print the heading prefix
+	if p.ParagraphStyle.NamedStyleType != "NORMAL_TEXT" {
+		log.Printf("warning: ignoring %s inside table cell", p.ParagraphStyle.NamedStyleType)
+	}
+
+	// deal with bullets
+	if p.Bullet != nil {
+		log.Println("warning: ignoring bullets inside table cell")
+	}
+
+	// print each text run in the paragraph
+	for _, el := range p.Elements {
+		switch {
+		case el.ColumnBreak != nil:
+			log.Println("warning: ignoring column break")
+		case el.Equation != nil:
+			log.Println("warning: ignoring equation")
+		case el.FootnoteReference != nil:
+			fmt.Fprintf(out, "[^%s]", el.FootnoteReference.FootnoteId)
+			dc.addFootnoteID(el.FootnoteReference.FootnoteId)
+		case el.AutoText != nil:
+			log.Println("warning: ignoring auto text")
+		case el.HorizontalRule != nil:
+			log.Println("warning: ignoring horizontal rule in table cell")
+		case el.InlineObjectElement != nil:
+			log.Println("warning: ignoring inline object in table cell")
+		case el.PageBreak != nil:
+			log.Println("warning: ignoring page break")
+		case el.TextRun != nil:
+			err := dc.processTextRunInTableCell(out, el.TextRun)
+			if err != nil {
+				return err
+			}
+		default:
+			log.Println("warning: encountered a paragraph element of unknown type")
+		}
+	}
+
+	return nil
+}
+
+// inside table cells there is a much more restricted set of formatting that we can implement in markdown
+func (dc *markdownConverter) processTextRunInTableCell(out *bytes.Buffer, t *docs.TextRun) error {
+	// unfortunately markdown only supports at most one of italic, bold,
+	// or strikethrough for any one bit of text
+	if t.TextStyle.Italic {
+		log.Println("warning: ignoring italics in table cell")
+	}
+	if t.TextStyle.Bold {
+		log.Println("warning: ignoring bold text in table cell")
+	}
+	if t.TextStyle.Strikethrough {
+		log.Println("warning: ignoring strikethrough in table cell")
+	}
+	if googledoc.IsMonospace(t.TextStyle.WeightedFontFamily) {
+		log.Println("warning: ignoring monospace in table cell")
+	}
+
+	// the following features are not supported at all in markdown
+	if t.TextStyle.SmallCaps {
+		log.Printf("warning: ignoring smallcaps on %q", t.Content)
+	}
+	if t.TextStyle.BackgroundColor != nil {
+		log.Printf("warning: ignoring background color on %q", t.Content)
+	}
+	if t.TextStyle.ForegroundColor != nil && t.TextStyle.Link == nil {
+		log.Printf("warning: ignoring foreground color on %q", t.Content)
+	}
+	if t.TextStyle.Underline && t.TextStyle.Link == nil {
+		log.Printf("warning: ignoring underlining on %q", t.Content)
+	}
+
+	switch t.TextStyle.BaselineOffset {
+	case "SUBSCRIPT":
+		log.Println("warning: ignoring subscript")
+	case "SUPERSCRIPT":
+		log.Println("warning: ignoring superscript")
+	}
+
+	// replace unicode quote characters with ordinary quote characters
+	content := t.Content
+	content = strings.ReplaceAll(content, `“`, `"`)
+	content = strings.ReplaceAll(content, `”`, `"`)
+
+	// in markdown we can only have single lines of text in each table cell
+	if strings.Contains(content, "\n") {
+		log.Println("warning: stripping newlines from content in table cell")
+		content = strings.ReplaceAll(content, "\n", " ")
+	}
+
+	// write the beginning of a link in form [...TEXT...](...URL...)
+	if t.TextStyle.Link == nil {
+		fmt.Fprint(out, content)
+	} else {
+		fmt.Fprintf(out, "[%s](%s)", content, t.TextStyle.Link.Url)
 	}
 
 	return nil
